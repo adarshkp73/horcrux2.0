@@ -20,14 +20,14 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onSend }) => {
       setText('');
     } catch (err) {
       console.error("Failed to send message:", err);
-      // TODO: Show error to user
     } finally {
       setIsSending(false);
     }
   };
 
   return (
-    <form onSubmit={handleSubmit} className="p-4 border-t border-grey-dark flex gap-4">
+    // Theme-aware border
+    <form onSubmit={handleSubmit} className="p-4 border-t border-grey-mid/20 dark:border-grey-dark flex gap-4">
       <Input
         type="text"
         value={text}
@@ -40,4 +40,4 @@ export const ChatInput: React.FC<ChatInputProps> = ({ onSend }) => {
       </Button>
     </form>
   );
-}; 
+};

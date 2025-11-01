@@ -13,15 +13,8 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { UserSearch } from '../users/UserSearch';
 import { LoadingSpinner } from '../core/LoadingSpinner';
 import clsx from 'clsx';
-// No longer need MenuIcon or onToggle prop
 
-// 1. DEFINE THE SIMPLER PROPS
-interface ChatSidebarProps {
-  isVisible: boolean;
-}
-
-// 2. USE THE SIMPLER PROPS
-export const ChatSidebar: React.FC<ChatSidebarProps> = ({ isVisible }) => {
+export const ChatSidebar: React.FC = () => {
   const { currentUser } = useAuth();
   const [chats, setChats] = useState<ChatWithRecipient[]>([]);
   const [loading, setLoading] = useState(true);
@@ -31,7 +24,6 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({ isVisible }) => {
   const { id: activeChatId } = useParams<{ id: string }>();
 
   useEffect(() => {
-    // ... (This useEffect hook is unchanged)
     if (!currentUser?.uid) {
         setLoading(false);
         setChats([]); 
@@ -65,6 +57,14 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({ isVisible }) => {
           };
           loadedChats.push({ chat, recipient });
         });
+        
+        // Sort by last message time (newest first)
+        loadedChats.sort((a, b) => {
+          const timeA = a.chat.lastMessage?.timestamp?.toMillis() || a.chat.id.length;
+          const timeB = b.chat.lastMessage?.timestamp?.toMillis() || b.chat.id.length;
+          return timeB - timeA;
+        });
+
         setChats(loadedChats);
         setLoading(false);
       },
@@ -78,23 +78,18 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({ isVisible }) => {
     return () => unsubscribe();
   }, [currentUser?.uid]);
 
-  // 3. This logic is unchanged and correct
-  if (!isVisible) {
-    return null;
-  }
-
-  // 4. Render the full sidebar
-  // The 'pt-16' on the parent container will push this all down.
   return (
     <>
-      {/* The header is simple again. "Photon" is at the top. */}
-      <h2 className="text-2xl font-bold text-pure-white mb-4">Photon</h2>
+      {/* Theme-aware title */}
+      <h2 className="text-2xl font-bold text-night dark:text-pure-white mb-4">Photon</h2>
 
       <UserSearch />
 
-      <h3 className="text-lg font-semibold text-grey-mid mb-2">Conversations</h3>
+      {/* Theme-aware subtitle */}
+      <h3 className="text-lg font-semibold text-grey-dark dark:text-grey-mid mb-2">
+        Conversations
+      </h3>
       
-      {/* Chat List (unchanged) */}
       <div className="flex-1 overflow-y-auto">
         {loading && (
           <div className="flex justify-center mt-4">
@@ -102,16 +97,18 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({ isVisible }) => {
           </div>
         )}
 
+        {/* Theme-aware error/empty text */}
         {!loading && error && chats.length === 0 && (
-          <p className="text-red-500 text-center">{error}</p>
+          <p className="text-red-600 dark:text-red-500 text-center">{error}</p>
         )}
 
         {!loading && !error && chats.length === 0 && (
-          <p className="text-grey-mid text-center">
+          <p className="text-grey-dark dark:text-grey-mid text-center">
             No chats yet. Find a user to start a conversation.
           </p>
         )}
 
+        {/* Theme-aware list items */}
         <div className="space-y-2">
           {chats.map(({ chat, recipient }) => (
             <div
@@ -120,14 +117,14 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({ isVisible }) => {
               className={clsx(
                 'p-3 rounded-lg cursor-pointer transition-colors',
                 chat.id === activeChatId
-                  ? 'bg-pure-white text-pure-black' 
-                  : 'bg-grey-dark text-grey-light hover:bg-grey-mid'
+                  ? 'bg-night/10 dark:bg-pure-white text-night dark:text-pure-black'
+                  : 'bg-pure-white/50 dark:bg-grey-dark text-night dark:text-grey-light hover:bg-pure-white dark:hover:bg-grey-mid'
               )}
             >
               <p className="font-bold">{recipient.username}</p>
               <p className={clsx(
                 "text-sm",
-                chat.id === activeChatId ? 'text-grey-dark' : 'text-grey-mid'
+                chat.id === activeChatId ? 'text-grey-dark dark:text-grey-dark' : 'text-grey-mid dark:text-grey-mid'
               )}>
                 {chat.lastMessage ? 'Encrypted Message' : 'No messages yet'}
               </p>

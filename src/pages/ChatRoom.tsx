@@ -1,8 +1,7 @@
-// 1. Add 'useMemo' to our React imports
 import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
-import { Chat, Message } from '../types';
+import { Chat, Message, ChatListItem } from '../types';
 import {
   doc,
   onSnapshot,
@@ -18,16 +17,8 @@ import * as Crypto from '../lib/crypto';
 import { ChatInput } from '../components/chat/ChatInput';
 import { ChatMessage } from '../components/chat/ChatMessage';
 import { LoadingSpinner } from '../components/core/LoadingSpinner';
-
-// 2. Import our new components and utilities
 import { DateSeparator } from '../components/chat/DateSeparator';
 import { formatDateSeparator } from '../lib/dateUtils';
-
-// 3. Define a new type for our list items
-type ChatListItem = 
-  | { type: 'message'; data: Message }
-  | { type: 'date'; date: Date };
-
 
 const ChatRoom: React.FC = () => {
   const { id: chatId } = useParams<{ id: string }>();
@@ -40,12 +31,7 @@ const ChatRoom: React.FC = () => {
 
   const messageListRef = useRef<HTMLDivElement>(null);
 
-  // ... (All useEffect hooks 1 & 2 are unchanged) ...
-  // ... (useEffect 3: Decrypt Messages is unchanged) ...
-  // ... (useEffect 4: Auto-scroll is unchanged) ...
-  // ... (handleSendMessage function is unchanged) ...
-  
-  // --- (All functions from line 30 to 207 are unchanged) ---
+  // ... (All logic and useEffects are unchanged) ...
   useEffect(() => {
     if (!chatId || !currentUser) return;
     setLoading(true);
@@ -59,11 +45,9 @@ const ChatRoom: React.FC = () => {
       setChat(chatData);
       const kemData = chatData.keyEncapsulationData;
       if (kemData && kemData.recipientId === currentUser.uid) {
-        console.log("KEM data found for me. Decapsulating...");
         try {
           await decapAndSaveKey(chatId, kemData.ciphertext);
           await updateDoc(doc.ref, { keyEncapsulationData: null });
-          console.log("KEM complete. Removed KEM data from chat doc.");
         } catch (err) {
           console.error("Failed to decapsulate key:", err);
         }
@@ -95,7 +79,6 @@ const ChatRoom: React.FC = () => {
     const decryptAll = async () => {
       const key = await getChatKey(chatId!);
       if (!key) {
-        console.log("Waiting for chat key... Clearing previous decryptions.");
         setDecryptedMessages(new Map()); 
         return;
       }
@@ -148,49 +131,37 @@ const ChatRoom: React.FC = () => {
       }
     });
   };
-
   
-  // 4. --- NEW LOGIC: GROUP MESSAGES BY DATE ---
   const groupedChatItems = useMemo(() => {
     const items: ChatListItem[] = [];
     let lastDate: string | null = null;
-
     messages.forEach((message) => {
-      // We need a valid timestamp to do anything
       if (message.timestamp) {
         const messageDate = message.timestamp.toDate();
-        const dateString = messageDate.toLocaleDateString(); // e.g., "10/31/2025"
-
-        // Check if this message is on a new day
+        const dateString = messageDate.toLocaleDateString();
         if (dateString !== lastDate) {
-          // If it is, add a date separator to our new array
           items.push({ type: 'date', date: messageDate });
-          lastDate = dateString; // Update the last seen date
+          lastDate = dateString;
         }
       }
-      
-      // Finally, add the message itself to the array
       items.push({ type: 'message', data: message });
     });
-
     return items;
-  }, [messages]); // This logic only re-runs when the 'messages' array changes
+  }, [messages]);
 
-
-  // ... (Loading/Error JSX is unchanged) ...
   if (loading) {
     return <div className="flex-1 flex items-center justify-center"><LoadingSpinner /></div>;
   }
   if (!chat) {
     return <div className="flex-1 flex items-center justify-center">Chat not found.</div>;
   }
+  
   const recipient = chat.participants?.find(p => p.uid !== currentUser!.uid);
 
-
-  // --- (This is the render() return) ---
   return (
     <div className="flex-1 flex flex-col h-full">
-      <div className="p-4 border-b border-grey-dark">
+      {/* Theme-aware header border */}
+      <div className="p-4 border-b border-grey-mid/20 dark:border-grey-dark">
         <h2 className="text-xl font-bold">
           Chat with {recipient ? recipient.username : '...'}
         </h2>
@@ -200,11 +171,7 @@ const ChatRoom: React.FC = () => {
         ref={messageListRef} 
         className="flex-1 p-4 space-y-4 overflow-y-auto"
       >
-        {/* 5. --- UPDATED RENDER LOGIC --- */}
-        {/* We now map over our new `groupedChatItems` array */}
         {groupedChatItems.map((item, index) => {
-          
-          // Case 1: The item is a date separator
           if (item.type === 'date') {
             return (
               <DateSeparator 
@@ -213,14 +180,11 @@ const ChatRoom: React.FC = () => {
               />
             );
           }
-
-          // Case 2: The item is a message
           const msg = item.data;
           const plaintext = msg.id ? decryptedMessages.get(msg.id) || "..." : "...";
-          
           return (
             <ChatMessage
-              key={msg.id || index} // Use index as fallback key
+              key={msg.id || index}
               text={plaintext}
               isSender={msg.senderId === currentUser!.uid}
               timestamp={msg.timestamp || null}

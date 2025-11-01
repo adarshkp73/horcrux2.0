@@ -3,17 +3,16 @@
 @tailwind utilities;
 
 body {
-  margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
+  /* This is the new default (Light Mode)
+    BG is light-grey, text is black/night
+  */
+  @apply bg-grey-light text-night;
+
+  /* This is the Dark Mode
+    When <html> has 'dark' class, these styles apply
+  */
+  @apply dark:bg-night dark:text-grey-light;
+
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
-
-code {
-  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
-    monospace;
-}
-
-

@@ -16,8 +16,10 @@ export const Button: React.FC<ButtonProps> = ({
   const baseStyles = 'w-full p-3 rounded font-bold transition-all disabled:opacity-50';
   
   const variants = {
-    primary: 'bg-pure-white text-pure-black hover:bg-grey-light',
-    secondary: 'bg-grey-dark text-grey-light hover:bg-grey-mid',
+    // Primary (dark in light mode, white in dark mode)
+    primary: 'bg-night text-pure-white hover:bg-grey-dark dark:bg-pure-white dark:text-pure-black dark:hover:bg-grey-light',
+    // Secondary (light grey in light mode, dark grey in dark mode)
+    secondary: 'bg-grey-mid/20 text-night hover:bg-grey-mid/40 dark:bg-grey-dark dark:text-grey-light dark:hover:bg-grey-mid',
   };
 
   return (

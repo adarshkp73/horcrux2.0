@@ -1,19 +1,15 @@
 import React from 'react';
 import clsx from 'clsx';
-import { Timestamp } from 'firebase/firestore'; // 1. Import the Timestamp type
+import { Timestamp } from 'firebase/firestore'; 
 
-// 2. DEFINE THE NEW PROPS
 interface ChatMessageProps {
   text: string;
   isSender: boolean;
-  timestamp: Timestamp | null; // <-- ADD THIS PROP
+  timestamp: Timestamp | null;
 }
 
 export const ChatMessage: React.FC<ChatMessageProps> = ({ text, isSender, timestamp }) => {
   
-  // 3. FORMAT THE TIMESTAMP
-  // This will convert the Firebase Timestamp into a simple string like "5:33 PM"
-  // It will return null if the timestamp isn't ready yet.
   const formattedTime = timestamp
     ? timestamp.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     : null;
@@ -24,21 +20,25 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({ text, isSender, timest
     >
       <div
         className={clsx(
-          'max-w-xs md:max-w-md lg:max-w-lg p-3 rounded-lg shadow-md', // Added a subtle shadow
+          'max-w-xs md:max-w-md lg:max-w-lg p-3 rounded-lg shadow-md',
+          // THEME-AWARE BUBBLES
           isSender
-            ? 'bg-pure-white text-pure-black'
-            : 'bg-grey-dark text-grey-light'
+            // Sender: Dark in light mode, White in dark mode
+            ? 'bg-night text-pure-white dark:bg-pure-white dark:text-night'
+            // Receiver: White in light mode, Dark in dark mode
+            : 'bg-pure-white text-night dark:bg-grey-dark dark:text-grey-light'
         )}
       >
-        {/* The message text */}
         <p className="whitespace-pre-wrap break-words">{text}</p>
         
-        {/* 4. DISPLAY THE FORMATTED TIME */}
         {formattedTime && (
           <span
             className={clsx(
-              'text-xs mt-1 block text-right', // Aligns time to the right
-              isSender ? 'text-grey-mid opacity-90' : 'text-grey-mid'
+              'text-xs mt-1 block text-right',
+              // Theme-aware timestamp text
+              isSender 
+                ? 'text-grey-light/70 dark:text-grey-mid' 
+                : 'text-grey-mid dark:text-grey-mid'
             )}
           >
             {formattedTime}

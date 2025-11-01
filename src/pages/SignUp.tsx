@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { Input } from '../components/core/Input';
 import { Button } from '../components/core/Button';
+import { getFriendlyErrorMessage } from '../lib/errors';
 
 const SignUp: React.FC = () => {
   const [email, setEmail] = useState('');
@@ -23,13 +24,11 @@ const SignUp: React.FC = () => {
     setLoading(true);
 
     try {
-      // This is the most complex operation in the app.
-      // The `signup` function handles it all.
       await signup(email, password, username);
       navigate('/');
     } catch (err: any) {
       console.error(err);
-      setError(err.message || "Failed to create account.");
+      setError(getFriendlyErrorMessage(err));
     } finally {
       setLoading(false);
     }
@@ -58,13 +57,17 @@ const SignUp: React.FC = () => {
         onChange={(e) => setPassword(e.target.value)}
         required
       />
+      
       {error && <p className="text-red-500 text-sm">{error}</p>}
+      
       <Button type="submit" isLoading={loading}>
         {loading ? 'Generating Keys...' : 'Create & Secure Vault'}
       </Button>
-      <p className="text-center text-grey-mid">
+      
+      {/* Theme-aware link */}
+      <p className="text-center text-grey-dark dark:text-grey-mid">
         Already have an account?{' '}
-        <Link to="/login" className="text-pure-white hover:underline">
+        <Link to="/login" className="text-night dark:text-pure-white hover:underline">
           Log in
         </Link>
       </p>

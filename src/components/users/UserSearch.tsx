@@ -8,12 +8,11 @@ import {
   doc,
   getDoc,
   setDoc,
-  // serverTimestamp, // We aren't using this yet
 } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 import { useAuth } from '../../hooks/useAuth';
 import { useNavigate } from 'react-router-dom';
-import { Chat, ChatParticipant, UserProfile } from '../../types'; // <-- NEW
+import { Chat, ChatParticipant, UserProfile } from '../../types';
 import { createChatId } from '../../lib/utils';
 import { Input } from '../core/Input';
 import { Button } from '../core/Button';
@@ -26,12 +25,10 @@ export const UserSearch: React.FC = () => {
   const [initiatingChat, setInitiatingChat] = useState(false);
   const [error, setError] = useState('');
 
-  // We need `userProfile` now
-  const { currentUser, userProfile, encapAndSaveKey } = useAuth(); // <-- NEW
+  const { currentUser, userProfile, encapAndSaveKey } = useAuth();
   const navigate = useNavigate();
 
   const handleSearch = async (e: React.FormEvent) => {
-    // ... (This function is unchanged)
     e.preventDefault();
     if (username.trim() === '' || !userProfile) return;
 
@@ -73,17 +70,12 @@ export const UserSearch: React.FC = () => {
     }
   };
 
-  /**
-   * This is the CORE KEM INITIATION flow (with debug logging).
-   */
   const handleStartChat = async (recipient: UserProfile) => {
-    if (!currentUser || !encapAndSaveKey || !userProfile) { // <-- NEW check
-      console.error('[START CHAT FAILED] Auth context not ready!');
+    if (!currentUser || !encapAndSaveKey || !userProfile) {
       setError('Fatal error: Auth context not ready.');
       return;
     }
 
-    console.log(`[START CHAT] Initiating with ${recipient.username}`);
     setInitiatingChat(true);
     setError('');
 
@@ -94,44 +86,31 @@ export const UserSearch: React.FC = () => {
 
       const chatId = createChatId(currentUser.uid, recipient.uid);
       const chatDocRef = doc(db, 'chats', chatId);
-      console.log(`[START CHAT] Chat ID created: ${chatId}`);
-
       const chatDocSnap = await getDoc(chatDocRef);
-      console.log(`[START CHAT] Checked for existing chat. Exists: ${chatDocSnap.exists()}`);
 
       if (chatDocSnap.exists()) {
-        console.log('[START CHAT] Navigating to existing chat.');
         navigate(`/chat/${chatId}`);
       } else {
-        console.log('[START CHAT] KEM Flow: Running encapAndSaveKey...');
         const ciphertext = await encapAndSaveKey(
           chatId,
           recipient.kyberPublicKey
         );
-        console.log('[START CHAT] KEM Flow: Encapsulation successful.');
-
-        // Create the new ChatParticipant objects
+        
         const me: ChatParticipant = { uid: currentUser.uid, username: userProfile.username };
         const other: ChatParticipant = { uid: recipient.uid, username: recipient.username };
         
         const newChat: Chat = {
           id: chatId,
-          // NEW: Add the participants array
-          participants: [me, other].sort((a, b) => a.uid.localeCompare(b.uid)) as [ChatParticipant, ChatParticipant], // <-- NEW
-          // Keep the simple users array for rules/queries
-          users: [currentUser.uid, recipient.uid].sort() as [string, string], // <-- NEW
+          participants: [me, other].sort((a, b) => a.uid.localeCompare(b.uid)) as [ChatParticipant, ChatParticipant],
+          users: [currentUser.uid, recipient.uid].sort() as [string, string],
           lastMessage: null,
           keyEncapsulationData: {
             recipientId: recipient.uid,
             ciphertext: ciphertext,
           },
         };
-        console.log('[START CHAT] KEM Flow: Creating new chat document in Firestore...');
 
         await setDoc(chatDocRef, newChat);
-        console.log('[START CHAT] KEM Flow: Successfully created chat doc.');
-        
-        console.log('[START CHAT] KEM Flow: Navigating to new chat room.');
         navigate(`/chat/${chatId}`);
       }
     } catch (err: any) {
@@ -142,7 +121,6 @@ export const UserSearch: React.FC = () => {
     }
   };
 
-  // ... (JSX render is unchanged)
   return (
     <div className="mb-4">
       <form onSubmit={handleSearch} className="flex gap-2">
@@ -166,20 +144,22 @@ export const UserSearch: React.FC = () => {
       {error && <p className="text-red-500 text-sm mt-2">{error}</p>}
 
       {initiatingChat && (
-        <div className="flex items-center gap-2 text-grey-mid mt-2">
+        // Theme-aware loading text
+        <div className="flex items-center gap-2 text-grey-dark dark:text-grey-mid mt-2">
           <LoadingSpinner />
           <span>Securing chat...</span>
         </div>
       )}
 
+      {/* Theme-aware search results */}
       <div className="mt-2 space-y-1">
         {searchResults.map((user) => (
           <div
             key={user.uid}
             onClick={() => handleStartChat(user)}
-            className="p-2 bg-grey-dark rounded-lg cursor-pointer hover:bg-grey-mid"
+            className="p-2 bg-grey-light/50 dark:bg-grey-dark rounded-lg cursor-pointer hover:bg-grey-light dark:hover:bg-grey-mid"
           >
-            <p className="font-semibold">{user.username}</p>
+            <p className="font-semibold text-night dark:text-grey-light">{user.username}</p>
             <p className="text-sm text-grey-mid">{user.email}</p>
           </div>
         ))}

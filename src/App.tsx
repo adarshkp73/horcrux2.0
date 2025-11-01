@@ -26,10 +26,13 @@ function App() {
         }
       >
         <Route path="chat/:id" element={<ChatRoom />} />
-        {/* You can add a default "welcome" screen */}
+        {/* Default "welcome" screen */}
         <Route index element={
           <div className="flex items-center justify-center h-full">
-            <p className="text-grey-mid">Select a chat to begin</p>
+            {/* Theme-aware placeholder text */}
+            <p className="text-grey-dark dark:text-grey-mid">
+              Select a chat to begin
+            </p>
           </div>
         } />
       </Route>

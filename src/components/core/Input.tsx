@@ -7,8 +7,13 @@ export const Input: React.FC<InputProps> = ({ className, ...props }) => {
   return (
     <input
       className={clsx(
-        'w-full p-3 bg-grey-dark text-grey-light rounded border border-grey-dark',
-        'focus:outline-none focus:border-pure-white focus:ring-1 focus:ring-pure-white',
+        // Default light mode styles
+        'w-full p-3 bg-pure-white text-night rounded border border-grey-mid/30',
+        'placeholder:text-grey-mid/70',
+        // Dark mode overrides
+        'dark:bg-grey-dark dark:text-grey-light dark:border-grey-dark dark:placeholder:text-grey-mid',
+        // Focus styles
+        'focus:outline-none focus:ring-1 focus:ring-night/50 dark:focus:ring-pure-white',
         className
       )}
       {...props}

@@ -8,7 +8,6 @@ import { getFriendlyErrorMessage } from '../lib/errors';
 const Login: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  // 1. The 'error' state starts as an empty string
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const { login } = useAuth();
@@ -16,16 +15,14 @@ const Login: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError(''); // Clear any old errors
+    setError('');
     setLoading(true);
 
     try {
       await login(email, password);
       navigate('/');
     } catch (err: any) {
-      console.error(err); // Good for debugging
-      alert("username or password invalid");
-      // 2. We set the 'error' state with the friendly message
+      console.error(err);
       setError(getFriendlyErrorMessage(err));
     } finally {
       setLoading(false);
@@ -48,21 +45,17 @@ const Login: React.FC = () => {
         onChange={(e) => setPassword(e.target.value)}
         required
       />
-
-      {/* 3. THIS IS THE FIX: This line will now work.
-          When 'error' is not empty, React will render this <p> tag 
-          and show the message on the screen.
-      */}
+      
       {error && <p className="text-red-500 text-sm">{error}</p>}
-
+      
       <Button type="submit" isLoading={loading}>
         Unlock Vault
-      {/* 4. THE TYPO IS FIXED: This is now correctly </Button> */}
       </Button> 
 
-      <p className="text-center text-grey-mid">
+      {/* Theme-aware link */}
+      <p className="text-center text-grey-dark dark:text-grey-mid">
         No account?{' '}
-        <Link to="/signup" className="text-pure-white hover:underline">
+        <Link to="/signup" className="text-night dark:text-pure-white hover:underline">
           Create one
         </Link>
       </p>
