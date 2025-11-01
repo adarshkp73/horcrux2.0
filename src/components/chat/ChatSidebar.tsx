@@ -13,8 +13,15 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { UserSearch } from '../users/UserSearch';
 import { LoadingSpinner } from '../core/LoadingSpinner';
 import clsx from 'clsx';
+// No longer need MenuIcon or onToggle prop
 
-export const ChatSidebar: React.FC = () => {
+// 1. DEFINE THE SIMPLER PROPS
+interface ChatSidebarProps {
+  isVisible: boolean;
+}
+
+// 2. USE THE SIMPLER PROPS
+export const ChatSidebar: React.FC<ChatSidebarProps> = ({ isVisible }) => {
   const { currentUser } = useAuth();
   const [chats, setChats] = useState<ChatWithRecipient[]>([]);
   const [loading, setLoading] = useState(true);
@@ -24,10 +31,10 @@ export const ChatSidebar: React.FC = () => {
   const { id: activeChatId } = useParams<{ id: string }>();
 
   useEffect(() => {
-    // This check is now even more important
+    // ... (This useEffect hook is unchanged)
     if (!currentUser?.uid) {
-        setLoading(false); // Stop loading if no user
-        setChats([]); // Clear chats
+        setLoading(false);
+        setChats([]); 
         return;
     };
 
@@ -39,35 +46,25 @@ export const ChatSidebar: React.FC = () => {
       q,
       (snapshot) => {
         setError(''); 
-        
         const loadedChats: ChatWithRecipient[] = [];
         
         snapshot.forEach((docRef) => {
           const chat = { id: docRef.id, ...docRef.data() } as Chat;
-
-          const recipientParticipant = chat.participants?.find( // Added optional chaining
+          const recipientParticipant = chat.participants?.find(
             (p) => p.uid !== currentUser.uid
           );
-
           if (!recipientParticipant) {
             console.warn(`Chat ${chat.id} has malformed participants.`);
             return; 
           }
-
           const recipient: UserProfile = {
             uid: recipientParticipant.uid,
             username: recipientParticipant.username,
-            email: '',
-            kyberPublicKey: '',
-            createdAt: new Timestamp(0, 0),
-            friends: [],
-            username_normalized: '',
+            email: '', kyberPublicKey: '', createdAt: new Timestamp(0, 0),
+            friends: [], username_normalized: '',
           };
-
           loadedChats.push({ chat, recipient });
         });
-
-        // TODO: Sort chats by lastMessage timestamp
         setChats(loadedChats);
         setLoading(false);
       },
@@ -79,17 +76,25 @@ export const ChatSidebar: React.FC = () => {
     );
 
     return () => unsubscribe();
-  }, [currentUser?.uid]); // <-- THIS IS THE FIX: from [currentUser] to [currentUser?.uid]
+  }, [currentUser?.uid]);
 
-  // ... (Rest of the JSX is unchanged) ...
+  // 3. This logic is unchanged and correct
+  if (!isVisible) {
+    return null;
+  }
+
+  // 4. Render the full sidebar
+  // The 'pt-16' on the parent container will push this all down.
   return (
-    <div className="w-full md:w-1/3 lg:w-1/4 bg-night border-r border-grey-dark p-4 flex flex-col h-full">
-      <h2 className="text-2xl font-bold mb-4 text-pure-white">Photon</h2>
+    <>
+      {/* The header is simple again. "Photon" is at the top. */}
+      <h2 className="text-2xl font-bold text-pure-white mb-4">Photon</h2>
 
       <UserSearch />
 
       <h3 className="text-lg font-semibold text-grey-mid mb-2">Conversations</h3>
       
+      {/* Chat List (unchanged) */}
       <div className="flex-1 overflow-y-auto">
         {loading && (
           <div className="flex justify-center mt-4">
@@ -120,7 +125,6 @@ export const ChatSidebar: React.FC = () => {
               )}
             >
               <p className="font-bold">{recipient.username}</p>
-              
               <p className={clsx(
                 "text-sm",
                 chat.id === activeChatId ? 'text-grey-dark' : 'text-grey-mid'
@@ -131,6 +135,6 @@ export const ChatSidebar: React.FC = () => {
           ))}
         </div>
       </div>
-    </div>
+    </>
   );
 };
