@@ -142,7 +142,7 @@ export const UserSearchModal: React.FC<UserSearchModalProps> = ({ isOpen, onClos
             recipientId: recipient.uid,
             ciphertext: ciphertext,
           },
-          // --- 2. THIS IS THE NEW PART ---
+          // --- 2. THIS IS THE FIX ---
           // Initialize the lastRead map. The creator (currentUser) has
           // "read" the chat by virtue of creating it.
           lastRead: {
