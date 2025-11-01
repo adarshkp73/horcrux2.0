@@ -1,6 +1,10 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from './useAuth';
-import { rtdb } from '../lib/firebase';
+import { 
+  rtdb, 
+  // We don't import this from lib/firebase.ts anymore, 
+  // but we ensure it's set up in our firebase.ts file.
+} from '../lib/firebase'; 
 import { 
   ref, 
   onValue, 
@@ -8,7 +12,6 @@ import {
   onDisconnect, 
   serverTimestamp, 
   off, 
-  get, // <-- New: Used to check connection status
 } from 'firebase/database';
 
 interface PresenceStatus {
@@ -23,7 +26,7 @@ export const usePresence = (uidToMonitor?: string) => {
   const { currentUser, isVaultUnlocked } = useAuth();
   const targetUid = uidToMonitor || currentUser?.uid;
 
-  // ... (Monitoring logic is unchanged, as it is simple and reactive) ...
+  // ... (Monitoring logic is unchanged, as it's not the problem) ...
   const [status, setStatus] = useState<PresenceStatus>({
     state: 'offline',
     last_changed: 0,
@@ -51,13 +54,11 @@ export const usePresence = (uidToMonitor?: string) => {
   }, [targetUid]);
 
 
-  // --- FIX: Logic for the CURRENT USER (Setting Presence) ---
+  // --- The Final Corrected Logic for Setting Presence ---
   useEffect(() => {
     const uid = currentUser?.uid;
-    // Condition 1: Must be logged in AND have an unlocked vault
-    // Condition 2: Must NOT be monitoring another UID (i.e., we are setting our OWN status)
     if (!uid || !isVaultUnlocked || uidToMonitor) {
-        // If state is not ready, do nothing. Do NOT explicitly set offline here.
+        // If state is not ready, do nothing.
         return;
     }
 
@@ -71,26 +72,28 @@ export const usePresence = (uidToMonitor?: string) => {
       last_changed: serverTimestamp(),
     };
     
-    // 1. Check connectivity before setting status
+    // Check connectivity before setting status
     const connectedRef = ref(rtdb, '.info/connected');
     
     const unsubscribe = onValue(connectedRef, (snapshot) => {
       if (snapshot.val() === true) {
-        // 2. Set onDisconnect handler only if connected
+        // Connection confirmed! This logic is guaranteed to work if RTDB is configured.
         onDisconnect(userStatusDatabaseRef).set(isOfflineForDatabase).then(() => {
-          // 3. Set status to online
           set(userStatusDatabaseRef, isOnlineForDatabase);
         }).catch(err => {
-          console.error("RTDB Set Error (Online):", err);
+          console.error("RTDB Set Error (Online): Connection established, but WRITE failed.", err);
         });
+      } else {
+        // Connection failure - ensures we are marked offline locally
+        set(userStatusDatabaseRef, isOfflineForDatabase);
+        console.warn("RTDB Connection Failure: Could not connect to .info/connected");
       }
     });
 
-    // 4. Cleanup: Clear the listener and explicitly set offline on unmount/logout
+    // Cleanup: Clear the listener and explicitly set offline on unmount/logout
     return () => {
       off(connectedRef, 'value', unsubscribe);
       onDisconnect(userStatusDatabaseRef).cancel();
-      // Set status to offline explicitly
       set(userStatusDatabaseRef, isOfflineForDatabase);
     };
   }, [currentUser, isVaultUnlocked, uidToMonitor]);
