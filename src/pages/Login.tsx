@@ -38,13 +38,28 @@ const Login: React.FC = () => {
         onChange={(e) => setEmail(e.target.value)}
         required
       />
-      <Input
-        type="password"
-        placeholder="Password"
-        value={password}
-        onChange={(e) => setPassword(e.target.value)}
-        required
-      />
+      
+      {/* Container for Password Input */}
+      <div>
+        <Input
+          type="password"
+          placeholder="Password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          required
+        />
+        
+        {/* --- THIS BLOCK IS NOW REMOVED ---
+        <div className="text-right mt-2">
+          <Link 
+            to="/forgot-password" 
+            className="text-sm text-night dark:text-pure-white hover:underline"
+          >
+            Forgot Password?
+          </Link>
+        </div>
+        */}
+      </div>
       
       {error && <p className="text-red-500 text-sm">{error}</p>}
       
@@ -52,7 +67,6 @@ const Login: React.FC = () => {
         Unlock Vault
       </Button> 
 
-      {/* Theme-aware link */}
       <p className="text-center text-grey-dark dark:text-grey-mid">
         No account?{' '}
         <Link to="/signup" className="text-night dark:text-pure-white hover:underline">

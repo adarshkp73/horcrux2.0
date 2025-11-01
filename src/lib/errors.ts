@@ -4,21 +4,25 @@
 export function getFriendlyErrorMessage(error: any): string {
   if (error && error.code) {
     switch (error.code) {
-      case 'auth/invalid-credential':
-      case 'auth/invalid-email':
+      // --- THIS IS THE NEW CASE ---
       case 'auth/wrong-password':
+        return 'The current password you entered is incorrect.';
+      
+      case 'auth/invalid-credential':
         return 'Invalid email or password. Please try again.';
+      
+      case 'auth/invalid-email':
+        return 'Please enter a valid email address.';
       
       case 'auth/user-not-found':
         return 'No account found with this email address.';
       
       case 'auth/too-many-requests':
-        return 'Access temporarily disabled due to too many failed attempts. Please reset your password or try again later.';
+        return 'Access temporarily disabled. Please reset your password or try again later.';
 
       case 'auth/email-already-in-use':
         return 'An account with this email address already exists.';
 
-      // Our custom error from the vault decryption
       case 'Invalid password.':
         return 'Invalid password. Vault decryption failed.';
       
@@ -27,8 +31,11 @@ export function getFriendlyErrorMessage(error: any): string {
     }
   }
   
-  // Fallback for non-Firebase errors
   if (error && error.message) {
+    if (error.message === 'Username is already taken.') {
+      return 'This username is already taken. Please choose another.';
+    }
+    // This will catch our "Vault re-encryption failed" error
     return error.message;
   }
 

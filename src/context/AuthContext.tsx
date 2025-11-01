@@ -1,40 +1,54 @@
 import React, { createContext, useState, useEffect } from 'react';
-import { User, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from 'firebase/auth';
-import { doc, getDoc, setDoc, updateDoc, Timestamp } from 'firebase/firestore';
+import { 
+  User, 
+  onAuthStateChanged, 
+  signInWithEmailAndPassword, 
+  createUserWithEmailAndPassword, 
+  signOut,
+  sendEmailVerification,
+  EmailAuthProvider,
+  reauthenticateWithCredential,
+  updatePassword
+} from 'firebase/auth';
+import { 
+  doc, getDoc, setDoc, updateDoc, Timestamp,
+  collection, query, where, getDocs, limit 
+} from 'firebase/firestore';
 import { auth, db } from '../lib/firebase';
 import * as Crypto from '../lib/crypto';
 import { KeyVault, SharedSecretsMap, UserProfile } from '../types';
 
-// This is the "in-memory" vault.
-// It only exists while the user is logged in.
-// It holds the keys needed for all cryptographic operations.
+/**
+ * This is the "in-memory" vault.
+ * It only exists while the user is logged in and the vault is unlocked.
+ * It holds the keys needed for all cryptographic operations.
+ */
 interface InMemVault {
   masterKey: CryptoKey;
   kyberPrivateKey: string; // Base64
   sharedSecrets: SharedSecretsMap;
 }
 
+/**
+ * This defines all the values and functions
+ * our app can get from the `useAuth()` hook.
+ */
 interface AuthContextType {
   currentUser: User | null;
   userProfile: UserProfile | null;
   loading: boolean;
-
-  isVaultUnlocked: boolean;
+  isVaultUnlocked: boolean; // Is the in-memory vault loaded?
   
-  // This function is the gateway to all chat E2EE.
-  // It gets the key from the in-memory vault.
+  // Crypto functions
   getChatKey: (chatId: string) => Promise<CryptoKey | null>;
-  
-  // This is the KEM Decapsulation flow
   decapAndSaveKey: (chatId: string, ciphertext: string) => Promise<void>;
+  encapAndSaveKey: (chatId: string, recipientPublicKey: string) => Promise<string>;
   
-  // This is the KEM Encapsulation flow
-  encapAndSaveKey: (chatId: string, recipientPublicKey: string) => Promise<string>; // returns ciphertext
-
-  // Standard auth functions
+  // Auth functions
   login: (email: string, password: string) => Promise<void>;
   signup: (email: string, password: string, username: string) => Promise<void>;
   logout: () => Promise<void>;
+  changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
 }
 
 export const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -43,92 +57,112 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
-
-  // The IN-MEMORY VAULT.
-  // This is the most sensitive data in the app.
-  // It is wiped on logout.
   const [inMemVault, setInMemVault] = useState<InMemVault | null>(null);
 
-  // Listen for Firebase Auth state changes
+  /**
+   * This is the main listener for auth state.
+   * It handles login, logout, page refreshes, and email verification status changes.
+   */
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       setLoading(true);
       if (user) {
-        setCurrentUser(user);
-        // User is logged in, but we still need to "unlock" the vault.
-        // We'll fetch the profile, but the vault remains locked
-        // until `login()` or `signup()` provides the password.
+        // User is logged in to Firebase.
+        setCurrentUser(user); // This user object has `emailVerified`
         const profileDoc = await getDoc(doc(db, 'users', user.uid));
         if (profileDoc.exists()) {
           setUserProfile(profileDoc.data() as UserProfile);
         }
       } else {
-        // User logged out. WIPE EVERYTHING.
+        // User is logged out.
         setCurrentUser(null);
         setUserProfile(null);
-        setInMemVault(null); // Critical: wipe in-memory keys
+        setInMemVault(null); // CRITICAL: wipe all in-memory keys
       }
       setLoading(false);
     });
-    return unsubscribe;
+    return unsubscribe; // Cleanup on unmount
   }, []);
 
   /**
-   * SIGN UP: Creates user, derives master key, generates Kyber keys,
+   * SIGN UP: Creates user, sends verification email, generates Kyber keys,
    * encrypts/stores vault, and "unlocks" the in-memory vault.
    */
   const signup = async (email: string, password: string, username: string) => {
     setLoading(true);
+    try {
+      // 1. Final gatekeeper check (prevents race conditions)
+      const normalizedUsername = username.toUpperCase();
+      const usersRef = collection(db, 'users');
+      const q = query(usersRef, where('username_normalized', '==', normalizedUsername), limit(1));
+      
+      const existingUserSnap = await getDocs(q);
+      if (!existingUserSnap.empty) {
+        throw new Error('Username is already taken.');
+      }
 
-    // 1. Create Firebase User
-    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-    const user = userCredential.user;
+      // 2. Create Firebase Auth user
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      const user = userCredential.user;
 
-    // 2. Derive Master Key from password
-    const salt = await Crypto.getSaltForUser(user.email!);
-    const mk = await Crypto.deriveMasterKey(password, salt);
+      // 3. Send the verification email
+      try {
+        await sendEmailVerification(user);
+        console.log('Verification email sent.');
+      } catch (err) {
+        console.error("Failed to send verification email:", err);
+      }
 
-    // 3. Generate Post-Quantum Key Pair
-    const { publicKey, privateKey } = await Crypto.generateKyberKeyPair();
-
-    // 4. Encrypt Private Key with Master Key
-    const encryptedPrivateKey = await Crypto.encryptWithAES(mk, privateKey);
-
-    // 5. Encrypt initial (empty) shared secrets map
-    const initialSecrets: SharedSecretsMap = {};
-    const encryptedSharedSecrets = await Crypto.encryptWithAES(
-      mk,
-      JSON.stringify(initialSecrets)
-    );
-
-    // 6. Create User Profile Doc (public data)
-    const profile: UserProfile = {
-      uid: user.uid,
-      username: username,
-      username_normalized: username.toUpperCase(),
-      email: user.email!,
-      kyberPublicKey: publicKey,
-      createdAt: Timestamp.now(),
-      friends: [],
-    };
-    await setDoc(doc(db, 'users', user.uid), profile);
-
-    // 7. Create Key Vault Doc (private, encrypted data)
-    const vault: KeyVault = {
-      encryptedPrivateKey: encryptedPrivateKey,
-      encryptedSharedSecrets: encryptedSharedSecrets,
-    };
-    await setDoc(doc(db, 'keyVaults', user.uid), vault);
-
-    // 8. Set in-memory state (UNLOCK THE VAULT)
-    setCurrentUser(user);
-    setUserProfile(profile);
-    setInMemVault({
-      masterKey: mk,
-      kyberPrivateKey: privateKey,
-      sharedSecrets: initialSecrets,
-    });
-    setLoading(false);
+      // 4. Derive Master Key (for encrypting the vault)
+      const salt = await Crypto.getSaltForUser(user.email!);
+      const mk = await Crypto.deriveMasterKey(password, salt);
+      
+      // 5. Generate Post-Quantum Key Pair
+      const { publicKey, privateKey } = await Crypto.generateKyberKeyPair();
+      
+      // 6. Encrypt Private Key
+      const encryptedPrivateKey = await Crypto.encryptWithAES(mk, privateKey);
+      
+      // 7. Encrypt initial (empty) shared secrets map
+      const initialSecrets: SharedSecretsMap = {};
+      const encryptedSharedSecrets = await Crypto.encryptWithAES(
+        mk,
+        JSON.stringify(initialSecrets)
+      );
+      
+      // 8. Create User Profile Doc in Firestore
+      const profile: UserProfile = {
+        uid: user.uid,
+        username: username,
+        username_normalized: normalizedUsername,
+        email: user.email!,
+        kyberPublicKey: publicKey,
+        createdAt: Timestamp.now(),
+        friends: [],
+      };
+      await setDoc(doc(db, 'users', user.uid), profile);
+      
+      // 9. Create Key Vault Doc in Firestore
+      const vault: KeyVault = {
+        encryptedPrivateKey: encryptedPrivateKey,
+        encryptedSharedSecrets: encryptedSharedSecrets,
+      };
+      await setDoc(doc(db, 'keyVaults', user.uid), vault);
+      
+      // 10. Set in-memory state (UNLOCK THE VAULT)
+      setCurrentUser(user);
+      setUserProfile(profile);
+      setInMemVault({
+        masterKey: mk,
+        kyberPrivateKey: privateKey,
+        sharedSecrets: initialSecrets,
+      });
+    } catch (err) {
+      console.error("Signup failed:", err);
+      throw err; // Re-throw for the form to catch and display
+    } finally {
+      setLoading(false);
+    }
   };
 
   /**
@@ -136,30 +170,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
    * vault, and "unlocks" the in-memory vault.
    */
   const login = async (email: string, password: string) => {
-    // 1. Set context loading state
     setLoading(true);
-
     try {
-      // 2. Sign in with Firebase
+      // 1. Sign in with Firebase
       const userCredential = await signInWithEmailAndPassword(auth, email, password);
       const user = userCredential.user;
-
-      // 3. Derive Master Key (must be same as signup)
+      
+      // 2. Derive Master Key
       const salt = await Crypto.getSaltForUser(user.email!);
       const mk = await Crypto.deriveMasterKey(password, salt);
-
-      // 4. Fetch User Profile and Key Vault
+      
+      // 3. Fetch User Profile and Key Vault
       const profileDoc = await getDoc(doc(db, 'users', user.uid));
       const vaultDoc = await getDoc(doc(db, 'keyVaults', user.uid));
-
       if (!profileDoc.exists() || !vaultDoc.exists()) {
         throw new Error("User data or key vault not found.");
       }
-
       const profile = profileDoc.data() as UserProfile;
       const vault = vaultDoc.data() as KeyVault;
-
-      // 5. DECRYPT VAULT with Master Key
+      
+      // 4. DECRYPT VAULT with Master Key
       let pKey: string;
       let secrets: SharedSecretsMap;
       try {
@@ -169,11 +199,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       } catch (err) {
         console.error("DECRYPTION FAILED.", err);
         await logout(); // Force logout
-        // This custom error will be caught by our new helper
         throw new Error("Invalid password.");
       }
-
-      // 6. Set in-memory state (UNLOCK THE VAULT)
+      
+      // 5. Set in-memory state (UNLOCK THE VAULT)
       setCurrentUser(user);
       setUserProfile(profile);
       setInMemVault({
@@ -181,17 +210,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         kyberPrivateKey: pKey,
         sharedSecrets: secrets,
       });
-
     } catch (err) {
-      // 7. If *anything* fails (login, decryption), re-throw the error
-      // so the Login.tsx component can see it and display a message.
       console.error("AuthContext login failed:", err);
-      throw err; // Re-throw the original error
-    
+      throw err; // Re-throw for the form
     } finally {
-      // 8. CRITICAL: No matter what happens (success or error),
-      // set loading back to false. This prevents the white screen.
-      setLoading(false);
+      setLoading(false); // This prevents the white screen bug
     }
   };
 
@@ -200,40 +223,79 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
    */
   const logout = async () => {
     await signOut(auth);
-    // The onAuthStateChanged listener will handle wiping state.
+    // The onAuthStateChanged listener will handle wiping all state.
   };
+  
+  /**
+   * CHANGE PASSWORD: The only secure way to change a password.
+   * User must be logged in and provide their current password.
+   * This re-encrypts the entire vault with the new password.
+   */
+  const changePassword = async (currentPassword: string, newPassword: string) => {
+    if (!currentUser || !currentUser.email || !inMemVault) {
+      throw new Error("User not fully authenticated.");
+    }
+    
+    // --- Step 1: Verify "Lock 1" (Firebase Auth) ---
+    const credential = EmailAuthProvider.credential(currentUser.email, currentPassword);
+    await reauthenticateWithCredential(currentUser, credential);
+    
+    // --- Step 2: Re-Encrypt "Lock 2" (The Vault) ---
+    try {
+      const salt = await Crypto.getSaltForUser(currentUser.email);
+      
+      const decryptedPrivateKey = inMemVault.kyberPrivateKey;
+      const decryptedSecrets = inMemVault.sharedSecrets;
+      
+      const newMasterKey = await Crypto.deriveMasterKey(newPassword, salt);
+      
+      const newEncryptedPrivateKey = await Crypto.encryptWithAES(newMasterKey, decryptedPrivateKey);
+      const newEncryptedSecrets = await Crypto.encryptWithAES(newMasterKey, JSON.stringify(decryptedSecrets));
+      
+      await updateDoc(doc(db, 'keyVaults', currentUser.uid), {
+        encryptedPrivateKey: newEncryptedPrivateKey,
+        encryptedSharedSecrets: newEncryptedSecrets,
+      });
 
-  // --- E2EE CHAT FUNCTIONS ---
+      // --- Step 3: Update "Lock 1" (Firebase Auth) ---
+      await updatePassword(currentUser, newPassword);
+
+      // --- Step 4: Update the In-Memory Vault ---
+      setInMemVault({
+        ...inMemVault,
+        masterKey: newMasterKey,
+      });
+      
+    } catch (cryptoError) {
+      console.error("CRITICAL: Failed to re-encrypt vault:", cryptoError);
+      throw new Error("Vault re-encryption failed. Password not changed.");
+    }
+  };
 
   /**
    * (RECIPIENT) Decapsulates a key, saves it, and updates the vault.
    */
   const decapAndSaveKey = async (chatId: string, ciphertext: string) => {
     if (!inMemVault || !currentUser) throw new Error("Vault locked.");
-
-    // 1. Decapsulate the key
+    
     const sharedSecretB64 = await Crypto.decapSharedSecret(
       inMemVault.kyberPrivateKey,
       ciphertext
     );
-
-    // 2. Add to in-memory vault
+    
     const newSecretsMap = {
       ...inMemVault.sharedSecrets,
       [chatId]: sharedSecretB64,
     };
     
-    // 3. Re-encrypt and save the *entire* secrets map to Firestore
     const encryptedSharedSecrets = await Crypto.encryptWithAES(
       inMemVault.masterKey,
       JSON.stringify(newSecretsMap)
     );
-
     await updateDoc(doc(db, 'keyVaults', currentUser.uid), {
       encryptedSharedSecrets: encryptedSharedSecrets,
     });
-
-    // 4. Update the in-memory state
+    
     setInMemVault((v) => v ? { ...v, sharedSecrets: newSecretsMap } : null);
     console.log(`[AuthContext] Successfully decapsulated and saved key for chat ${chatId}`);
   };
@@ -243,17 +305,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
    */
   const encapAndSaveKey = async (chatId: string, recipientPublicKey: string): Promise<string> => {
     if (!inMemVault || !currentUser) throw new Error("Vault locked.");
-
-    // 1. Encapsulate the key
+    
     const { sharedSecret, ciphertext } = await Crypto.encapSharedSecret(recipientPublicKey);
-
-    // 2. Add to in-memory vault
+    
+    // *** THIS IS THE FIX ***
     const newSecretsMap = {
-      ...inMemVault.sharedSecrets,
+      ...inMemVault.sharedSecrets, // <-- Was 'inSilo.sharedSecrets'
       [chatId]: sharedSecret,
     };
-
-    // 3. Re-encrypt and save the *entire* secrets map to Firestore
+    
     const encryptedSharedSecrets = await Crypto.encryptWithAES(
       inMemVault.masterKey,
       JSON.stringify(newSecretsMap)
@@ -261,13 +321,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     await updateDoc(doc(db, 'keyVaults', currentUser.uid), {
       encryptedSharedSecrets: encryptedSharedSecrets,
     });
-
-    // 4. Update in-memory state
-    setInMemVault((v) => v ? { ...v, sharedSecrets: newSecretsMap } : null);
     
+    setInMemVault((v) => v ? { ...v, sharedSecrets: newSecretsMap } : null);
     console.log(`[AuthContext] Successfully encapsulated and saved key for chat ${chatId}`);
-
-    // 5. Return the ciphertext to be sent to the recipient
+    
     return ciphertext;
   };
 
@@ -276,18 +333,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
    */
   const getChatKey = async (chatId: string): Promise<CryptoKey | null> => {
     if (!inMemVault) return null;
-
+    
     const secretB64 = inMemVault.sharedSecrets[chatId];
-    if (!secretB64) {
+    
+    // *** THIS IS THE FIX ***
+    if (!secretB64) { // <-- Was 'secretB6Silo'
       console.warn(`No shared secret found in memory for chat: ${chatId}`);
       return null;
     }
     
-    // Import the raw key into a CryptoKey for AES-GCM use
     return Crypto.importSharedSecret(secretB64);
   };
 
-
+  // This is the public value that all components will consume
   const value = {
     currentUser,
     userProfile,
@@ -299,11 +357,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     login,
     signup,
     logout,
+    changePassword,
   };
 
   return (
     <AuthContext.Provider value={value}>
-      {children}
+      {!loading && children}
     </AuthContext.Provider>
   );
 };

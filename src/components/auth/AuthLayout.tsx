@@ -8,23 +8,34 @@ const AuthLayout: React.FC = () => {
 
   if (loading) {
     return (
-      // Use theme-aware background
       <div className="flex items-center justify-center min-h-screen bg-grey-light dark:bg-pure-black">
         <LoadingSpinner />
       </div>
     );
   }
   
+  // --- THIS IS THE CORRECTED LOGIC ---
   if (currentUser && isVaultUnlocked) {
-    return <Navigate to="/" replace />;
+    // The user is logged in and their vault is unlocked.
+    // Now we check *where* to send them.
+    
+    if (currentUser.emailVerified) {
+      // They are fully authenticated AND verified. Send them to the main app.
+      return <Navigate to="/" replace />;
+    } else {
+      // They are authenticated but NOT verified.
+      // Send them directly to the "Verify Email" page.
+      // This fixes the race condition.
+      return <Navigate to="/verify-email" replace />;
+    }
   }
 
+  // If the user is logged out (currentUser is null) OR their vault is locked,
+  // we show the <Outlet />, which contains the Login, SignUp,
+  // and ForgotPassword pages.
   return (
-    // Theme-aware background
     <div className="flex items-center justify-center min-h-screen bg-grey-light dark:bg-pure-black">
-      {/* Theme-aware card */}
       <div className="w-full max-w-md p-8 bg-pure-white dark:bg-night rounded-lg shadow-xl">
-        {/* Theme-aware title */}
         <h1 className="text-4xl font-bold text-center text-night dark:text-pure-white mb-8">
           PHOTON
         </h1>

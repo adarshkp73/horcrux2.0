@@ -4,27 +4,30 @@ import { useAuth } from '../../hooks/useAuth';
 import { LoadingSpinner } from './LoadingSpinner';
 
 export const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  // 1. Get `isVaultUnlocked` and `loading` from our hook
-  const { isVaultUnlocked, loading } = useAuth();
+  const { currentUser, isVaultUnlocked, loading } = useAuth();
 
-  // 2. We still wait for the initial Firebase auth check to complete
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-screen">
+      <div className="flex items-center justify-center h-screen bg-grey-light dark:bg-night">
         <LoadingSpinner />
       </div>
     );
   }
 
-  // 3. THIS IS THE FIX
-  // We no longer check `currentUser`. We check if the VAULT is unlocked.
-  // If the user refreshed the page, `currentUser` might exist,
-  // but `isVaultUnlocked` will be FALSE.
+  // 1. First, check if vault is unlocked.
+  // If not, they MUST go to /login (this is our security model)
   if (!isVaultUnlocked) {
-    // This will redirect the user to the login page to unlock their vault.
     return <Navigate to="/login" replace />;
   }
 
-  // 4. If we are not loading AND the vault is unlocked, show the app.
+  // 2. Vault is unlocked, so we have a `currentUser`.
+  // Now, check if their email is verified.
+  if (currentUser && !currentUser.emailVerified) {
+    // If not verified, send them to the verification page.
+    return <Navigate to="/verify-email" replace />;
+  }
+
+  // 3. If we are not loading, vault is unlocked, AND email is verified,
+  // show the main app.
   return <>{children}</>;
 };

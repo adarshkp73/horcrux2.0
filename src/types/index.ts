@@ -15,6 +15,7 @@ export interface UserProfile {
   kyberPublicKey: string; // Base64 encoded
   createdAt: Timestamp;
   friends: string[]; // array of UIDs
+  // The 'hidden_chats' field is now GONE
 }
 
 // Stored in `keyVaults/{userId}`
@@ -49,10 +50,14 @@ export interface Chat {
   participants: [ChatParticipant, ChatParticipant]; // For fast display
   users: [string, string]; // For rules and queries
   lastMessage: {
+    senderId: string; 
     encryptedText: string;
     timestamp: Timestamp;
   } | null;
   keyEncapsulationData: KeyEncapsulationData | null;
+  lastRead: {
+    [key: string]: Timestamp;
+  };
 }
 
 // Stored in `chats/{chatId}/messages/{messageId}`
@@ -68,8 +73,7 @@ export type ChatListItem =
   | { type: 'message'; data: Message }
   | { type: 'date'; date: Date };
 
-// === THIS IS THE MISSING INTERFACE ===
-// A helper type for the ChatSidebar to combine chat data with the recipient's profile
+// A helper type for the ChatSidebar
 export interface ChatWithRecipient {
   chat: Chat;
   recipient: UserProfile;

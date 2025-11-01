@@ -11,6 +11,7 @@ import {
   updateDoc,
   query,
   orderBy,
+  setDoc,
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import * as Crypto from '../lib/crypto';
@@ -31,18 +32,21 @@ const ChatRoom: React.FC = () => {
 
   const messageListRef = useRef<HTMLDivElement>(null);
 
-  // ... (All logic and useEffects are unchanged) ...
+  // --- (useEffect 1: Listen to Chat Document) ---
   useEffect(() => {
     if (!chatId || !currentUser) return;
     setLoading(true);
+    
     const unsubChat = onSnapshot(doc(db, 'chats', chatId), async (doc) => {
       if (!doc.exists()) {
         console.error("Chat does not exist");
         setLoading(false);
         return;
       }
+      
       const chatData = { id: doc.id, ...doc.data() } as Chat;
       setChat(chatData);
+
       const kemData = chatData.keyEncapsulationData;
       if (kemData && kemData.recipientId === currentUser.uid) {
         try {
@@ -57,6 +61,35 @@ const ChatRoom: React.FC = () => {
     return () => unsubChat();
   }, [chatId, currentUser, decapAndSaveKey]);
 
+  // --- (useEffect 2: "Mark as Read") ---
+  useEffect(() => {
+    if (!chatId || !currentUser || !chat) {
+      return;
+    }
+
+    const lastMsg = chat.lastMessage;
+    const myLastRead = (chat.lastRead && chat.lastRead[currentUser.uid]) ? chat.lastRead[currentUser.uid] : null;
+
+    let needsReadUpdate = false;
+    if (lastMsg && lastMsg.senderId !== currentUser.uid) {
+      if (!myLastRead || myLastRead.toMillis() < lastMsg.timestamp.toMillis()) {
+        needsReadUpdate = true;
+      }
+    }
+
+    if (needsReadUpdate) {
+      console.log(`Marking chat ${chatId} as read...`);
+      setDoc(doc(db, 'chats', chatId), {
+        lastRead: {
+          [currentUser.uid]: Timestamp.now()
+        }
+      }, { merge: true })
+      .catch(err => console.error("Error marking chat as read:", err));
+    }
+
+  }, [chat, chatId, currentUser]); 
+
+  // --- (useEffect 3: Listen to Messages) ---
   useEffect(() => {
     if (!chatId) return;
     const messagesRef = collection(db, 'chats', chatId, 'messages');
@@ -74,6 +107,7 @@ const ChatRoom: React.FC = () => {
     return () => unsubMessages();
   }, [chatId]);
 
+  // --- (useEffect 4: Decrypt Messages) ---
   useEffect(() => {
     if (messages.length === 0) return;
     const decryptAll = async () => {
@@ -104,12 +138,14 @@ const ChatRoom: React.FC = () => {
     decryptAll();
   }, [messages, chatId, getChatKey, decryptedMessages]);
 
+  // --- (useEffect 5: Auto-scroll) ---
   useEffect(() => {
     if (messageListRef.current) {
       messageListRef.current.scrollTop = messageListRef.current.scrollHeight;
     }
   }, [decryptedMessages]); 
   
+  // --- (handleSendMessage function: THIS IS THE FIX) ---
   const handleSendMessage = async (text: string) => {
     if (!chatId || !currentUser) return;
     const key = await getChatKey(chatId);
@@ -118,20 +154,28 @@ const ChatRoom: React.FC = () => {
       return;
     }
     const encryptedText = await Crypto.encryptWithAES(key, text);
+    
+    // 1. Create the new message object
     const newMessage = {
       senderId: currentUser.uid,
       encryptedText: encryptedText,
       timestamp: Timestamp.now(), 
     };
+    
+    // 2. Add the new message to the subcollection
     await addDoc(collection(db, 'chats', chatId, 'messages'), newMessage);
+    
+    // 3. Update the `lastMessage` field on the main chat doc
     await updateDoc(doc(db, 'chats', chatId), {
       lastMessage: {
+        senderId: currentUser.uid, // <-- THIS IS THE NEW LINE
         encryptedText: encryptedText,
         timestamp: newMessage.timestamp,
       }
     });
   };
   
+  // --- (groupedChatItems logic is unchanged) ---
   const groupedChatItems = useMemo(() => {
     const items: ChatListItem[] = [];
     let lastDate: string | null = null;
@@ -149,18 +193,28 @@ const ChatRoom: React.FC = () => {
     return items;
   }, [messages]);
 
+  // --- (Rest of the render/JSX is unchanged) ---
   if (loading) {
     return <div className="flex-1 flex items-center justify-center"><LoadingSpinner /></div>;
   }
-  if (!chat) {
+  if (!chat || !currentUser) { 
     return <div className="flex-1 flex items-center justify-center">Chat not found.</div>;
   }
   
-  const recipient = chat.participants?.find(p => p.uid !== currentUser!.uid);
+  const recipient = chat.participants?.find(p => p.uid !== currentUser.uid);
+
+  const lastMessage = messages.length > 0 ? messages[messages.length - 1] : null;
+  let showReadReceipt = false;
+  
+  if (recipient && lastMessage && lastMessage.senderId === currentUser.uid) {
+    const recipientLastRead = (chat.lastRead && chat.lastRead[recipient.uid]) ? chat.lastRead[recipient.uid] : null;
+    if (recipientLastRead && recipientLastRead.toMillis() >= lastMessage.timestamp.toMillis()) {
+      showReadReceipt = true;
+    }
+  }
 
   return (
     <div className="flex-1 flex flex-col h-full">
-      {/* Theme-aware header border */}
       <div className="p-4 border-b border-grey-mid/20 dark:border-grey-dark">
         <h2 className="text-xl font-bold">
           Chat with {recipient ? recipient.username : '...'}
@@ -186,11 +240,19 @@ const ChatRoom: React.FC = () => {
             <ChatMessage
               key={msg.id || index}
               text={plaintext}
-              isSender={msg.senderId === currentUser!.uid}
+              isSender={msg.senderId === currentUser.uid}
               timestamp={msg.timestamp || null}
             />
           );
         })}
+      </div>
+
+      <div className="h-6 px-4 pb-2 text-right">
+        {showReadReceipt && (
+          <span className="text-sm text-grey-mid">
+            Read
+          </span>
+        )}
       </div>
 
       <ChatInput onSend={handleSendMessage} />
