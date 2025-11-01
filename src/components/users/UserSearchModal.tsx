@@ -101,7 +101,6 @@ export const UserSearchModal: React.FC<UserSearchModalProps> = ({ isOpen, onClos
     }
   };
 
-  // --- THIS IS THE CORRECTED FUNCTION ---
   const handleStartChat = async (recipient: UserProfile) => {
     if (!currentUser || !encapAndSaveKey || !userProfile) {
       setError('Fatal error: Auth context not ready.');
@@ -144,7 +143,8 @@ export const UserSearchModal: React.FC<UserSearchModalProps> = ({ isOpen, onClos
             recipientId: recipient.uid,
             ciphertext: ciphertext,
           },
-          // This line is required to fix the error
+          // --- THIS IS THE FIX ---
+          // This line is required to fix the error TS2741
           lastRead: {
             [currentUser.uid]: Timestamp.now()
           }
