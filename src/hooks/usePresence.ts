@@ -1,7 +1,15 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from './useAuth';
 import { rtdb } from '../lib/firebase';
-import { ref, onValue, set, onDisconnect, serverTimestamp, off } from 'firebase/database';
+import { 
+  ref, 
+  onValue, 
+  set, 
+  onDisconnect, 
+  serverTimestamp, 
+  off, 
+  get, // <-- New: Used to check connection status
+} from 'firebase/database';
 
 interface PresenceStatus {
   state: 'online' | 'offline';
@@ -10,18 +18,12 @@ interface PresenceStatus {
 
 /**
  * Hook to manage and listen for a specific user's presence status.
- *
- * It has two modes:
- * 1. Called with no UID: It SETS the current user's presence.
- * 2. Called with a UID: It MONITORS another user's presence.
  */
-export const usePresence = (uidToMonitor?: string) => { // Renamed for clarity
+export const usePresence = (uidToMonitor?: string) => {
   const { currentUser, isVaultUnlocked } = useAuth();
-  
-  // The UID we are targeting (either current user or external user)
   const targetUid = uidToMonitor || currentUser?.uid;
 
-  // --- Logic for MONITORING ANOTHER USER (Always runs) ---
+  // ... (Monitoring logic is unchanged, as it is simple and reactive) ...
   const [status, setStatus] = useState<PresenceStatus>({
     state: 'offline',
     last_changed: 0,
@@ -29,9 +31,7 @@ export const usePresence = (uidToMonitor?: string) => { // Renamed for clarity
 
   useEffect(() => {
     if (!targetUid) return;
-
     const statusRef = ref(rtdb, 'status/' + targetUid);
-
     const handleStatusChange = (snapshot: any) => {
       const data = snapshot.val();
       if (data) {
@@ -40,37 +40,28 @@ export const usePresence = (uidToMonitor?: string) => { // Renamed for clarity
           last_changed: data.last_changed || Date.now(),
         });
       } else {
-        // If data is null, assume offline
         setStatus({
           state: 'offline',
           last_changed: 0,
         });
       }
     };
-
-    // Start listening to the target user's status
     onValue(statusRef, handleStatusChange);
-
-    // Stop listening when the UID changes or component unmounts
     return () => off(statusRef, 'value', handleStatusChange);
   }, [targetUid]);
 
 
-  // --- Logic for the CURRENT USER (Setting Presence) ---
+  // --- FIX: Logic for the CURRENT USER (Setting Presence) ---
   useEffect(() => {
-    // Only set presence if we have a user, the vault is unlocked, and we are NOT monitoring another UID
-    if (!currentUser || !currentUser.uid || !isVaultUnlocked || uidToMonitor) {
-        // We only explicitly set the user offline if we were previously logged in
-        if (currentUser && currentUser.uid) {
-            set(ref(rtdb, 'status/' + currentUser.uid), {
-                state: 'offline',
-                last_changed: serverTimestamp(),
-            });
-        }
+    const uid = currentUser?.uid;
+    // Condition 1: Must be logged in AND have an unlocked vault
+    // Condition 2: Must NOT be monitoring another UID (i.e., we are setting our OWN status)
+    if (!uid || !isVaultUnlocked || uidToMonitor) {
+        // If state is not ready, do nothing. Do NOT explicitly set offline here.
         return;
     }
 
-    const userStatusDatabaseRef = ref(rtdb, 'status/' + currentUser.uid);
+    const userStatusDatabaseRef = ref(rtdb, 'status/' + uid);
     const isOnlineForDatabase = {
       state: 'online',
       last_changed: serverTimestamp(),
@@ -79,23 +70,30 @@ export const usePresence = (uidToMonitor?: string) => { // Renamed for clarity
       state: 'offline',
       last_changed: serverTimestamp(),
     };
-
-    // 1. Set the onDisconnect hook (CRITICAL STEP)
-    onDisconnect(userStatusDatabaseRef).set(isOfflineForDatabase).then(() => {
-        // 2. Set the status to online immediately after setting onDisconnect
-        set(userStatusDatabaseRef, isOnlineForDatabase);
-    }).catch(err => {
-      console.error("Failed to set RTDB presence/onDisconnect:", err);
+    
+    // 1. Check connectivity before setting status
+    const connectedRef = ref(rtdb, '.info/connected');
+    
+    const unsubscribe = onValue(connectedRef, (snapshot) => {
+      if (snapshot.val() === true) {
+        // 2. Set onDisconnect handler only if connected
+        onDisconnect(userStatusDatabaseRef).set(isOfflineForDatabase).then(() => {
+          // 3. Set status to online
+          set(userStatusDatabaseRef, isOnlineForDatabase);
+        }).catch(err => {
+          console.error("RTDB Set Error (Online):", err);
+        });
+      }
     });
 
-    // 3. Cleanup: Clear the onDisconnect handler when the component unmounts/state changes
+    // 4. Cleanup: Clear the listener and explicitly set offline on unmount/logout
     return () => {
-      // Clear the onDisconnect hook to prevent it from firing when the app closes normally
+      off(connectedRef, 'value', unsubscribe);
       onDisconnect(userStatusDatabaseRef).cancel();
       // Set status to offline explicitly
       set(userStatusDatabaseRef, isOfflineForDatabase);
     };
-  }, [currentUser, isVaultUnlocked, uidToMonitor]); // uidToMonitor ensures this only runs when setting self-presence
+  }, [currentUser, isVaultUnlocked, uidToMonitor]);
 
   return status;
 };
