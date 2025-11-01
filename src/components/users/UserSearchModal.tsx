@@ -8,7 +8,7 @@ import {
   doc,
   getDoc,
   setDoc,
-  Timestamp, // <-- 1. IMPORT TIMESTAMP
+  Timestamp, // Make sure Timestamp is imported
 } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 import { useAuth } from '../../hooks/useAuth';
@@ -101,6 +101,7 @@ export const UserSearchModal: React.FC<UserSearchModalProps> = ({ isOpen, onClos
     }
   };
 
+  // --- THIS IS THE CORRECTED FUNCTION ---
   const handleStartChat = async (recipient: UserProfile) => {
     if (!currentUser || !encapAndSaveKey || !userProfile) {
       setError('Fatal error: Auth context not ready.');
@@ -133,7 +134,7 @@ export const UserSearchModal: React.FC<UserSearchModalProps> = ({ isOpen, onClos
         const me: ChatParticipant = { uid: currentUser.uid, username: userProfile.username };
         const other: ChatParticipant = { uid: recipient.uid, username: recipient.username };
         
-        // This is the object that was causing the error
+        // This is the object that MUST match the 'Chat' type
         const newChat: Chat = {
           id: chatId,
           participants: [me, other].sort((a, b) => a.uid.localeCompare(b.uid)) as [ChatParticipant, ChatParticipant],
@@ -143,9 +144,7 @@ export const UserSearchModal: React.FC<UserSearchModalProps> = ({ isOpen, onClos
             recipientId: recipient.uid,
             ciphertext: ciphertext,
           },
-          // --- 2. THIS IS THE FIX ---
-          // Initialize the lastRead map. The creator (currentUser) has
-          // "read" the chat by virtue of creating it.
+          // This line is required to fix the error
           lastRead: {
             [currentUser.uid]: Timestamp.now()
           }
@@ -165,7 +164,7 @@ export const UserSearchModal: React.FC<UserSearchModalProps> = ({ isOpen, onClos
     }
   };
 
-  // Render the modal UI
+  // --- (The JSX render is unchanged) ---
   if (!isOpen) {
     return null;
   }
@@ -173,12 +172,12 @@ export const UserSearchModal: React.FC<UserSearchModalProps> = ({ isOpen, onClos
     // Backdrop
     <div 
       className="fixed inset-0 z-30 flex items-center justify-center bg-black/50 backdrop-blur-sm"
-      onClick={onClose} // Close modal if you click outside
+      onClick={onClose}
     >
       {/* Modal Content */}
       <div
         className="relative z-40 w-full max-w-md p-6 bg-pure-white dark:bg-night rounded-lg shadow-xl"
-        onClick={(e) => e.stopPropagation()} // Stop click from propagating to backdrop
+        onClick={(e) => e.stopPropagation()}
       >
         {/* Close Button */}
         <button
