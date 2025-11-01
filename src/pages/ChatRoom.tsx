@@ -1,4 +1,5 @@
-import React, { useEffect, useState, useRef } from 'react';
+// 1. Add 'useMemo' to our React imports
+import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { Chat, Message } from '../types';
@@ -13,10 +14,20 @@ import {
   orderBy,
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
-import * as Crypto from '../lib/crypto'; // Make sure this path is correct (e.g., ../lib/crypto)
+import * as Crypto from '../lib/crypto';
 import { ChatInput } from '../components/chat/ChatInput';
 import { ChatMessage } from '../components/chat/ChatMessage';
 import { LoadingSpinner } from '../components/core/LoadingSpinner';
+
+// 2. Import our new components and utilities
+import { DateSeparator } from '../components/chat/DateSeparator';
+import { formatDateSeparator } from '../lib/dateUtils';
+
+// 3. Define a new type for our list items
+type ChatListItem = 
+  | { type: 'message'; data: Message }
+  | { type: 'date'; date: Date };
+
 
 const ChatRoom: React.FC = () => {
   const { id: chatId } = useParams<{ id: string }>();
@@ -29,11 +40,14 @@ const ChatRoom: React.FC = () => {
 
   const messageListRef = useRef<HTMLDivElement>(null);
 
-  // --- EFFECT 1: Listen to the Chat Document ---
-  // ... (This effect is unchanged)
+  // ... (All useEffect hooks 1 & 2 are unchanged) ...
+  // ... (useEffect 3: Decrypt Messages is unchanged) ...
+  // ... (useEffect 4: Auto-scroll is unchanged) ...
+  // ... (handleSendMessage function is unchanged) ...
+  
+  // --- (All functions from line 30 to 207 are unchanged) ---
   useEffect(() => {
     if (!chatId || !currentUser) return;
-
     setLoading(true);
     const unsubChat = onSnapshot(doc(db, 'chats', chatId), async (doc) => {
       if (!doc.exists()) {
@@ -41,10 +55,8 @@ const ChatRoom: React.FC = () => {
         setLoading(false);
         return;
       }
-      
       const chatData = { id: doc.id, ...doc.data() } as Chat;
       setChat(chatData);
-
       const kemData = chatData.keyEncapsulationData;
       if (kemData && kemData.recipientId === currentUser.uid) {
         console.log("KEM data found for me. Decapsulating...");
@@ -58,18 +70,13 @@ const ChatRoom: React.FC = () => {
       }
       setLoading(false);
     });
-
     return () => unsubChat();
   }, [chatId, currentUser, decapAndSaveKey]);
 
-  // --- EFFECT 2: Listen to Messages (WITH SORTING) ---
-  // ... (This effect is unchanged)
   useEffect(() => {
     if (!chatId) return;
-
     const messagesRef = collection(db, 'chats', chatId, 'messages');
     const q = query(messagesRef, orderBy('timestamp', 'asc')); 
-
     const unsubMessages = onSnapshot(
       q, 
       (snapshot) => {
@@ -80,38 +87,25 @@ const ChatRoom: React.FC = () => {
         setMessages(msgs);
       }
     );
-
     return () => unsubMessages();
   }, [chatId]);
 
-  // --- EFFECT 3: Decrypt Messages (THIS IS THE FIX) ---
   useEffect(() => {
     if (messages.length === 0) return;
-
     const decryptAll = async () => {
       const key = await getChatKey(chatId!);
-      
       if (!key) {
-        // Key is not ready. Clear any old decryptions and wait.
         console.log("Waiting for chat key... Clearing previous decryptions.");
         setDecryptedMessages(new Map()); 
         return;
       }
-
-      // Key is available, proceed.
       const newDecrypted = new Map(decryptedMessages);
       let needsUpdate = false;
-
       for (const msg of messages) {
-        
-        // === THIS IS THE CORRECTED LOGIC ===
-        // We must ONLY try to decrypt if:
-        // 1. The message has a valid ID.
-        // 2. We have not already decrypted it.
         if (msg.id && !newDecrypted.has(msg.id)) { 
           try {
             const plaintext = await Crypto.decryptWithAES(key, msg.encryptedText);
-            newDecrypted.set(msg.id, plaintext); // This line is now safe
+            newDecrypted.set(msg.id, plaintext);
             needsUpdate = true;
           } catch (err) {
             console.warn("Failed to decrypt message (key was present):", msg.id, err);
@@ -119,49 +113,34 @@ const ChatRoom: React.FC = () => {
             needsUpdate = true;
           }
         }
-        // If msg.id is undefined, or we already have it in the map, we do nothing.
-        // === END OF CORRECTED LOGIC ===
       }
-
       if (needsUpdate) {
         setDecryptedMessages(newDecrypted);
       }
     };
-
     decryptAll();
-    
-  }, [messages, chatId, getChatKey, decryptedMessages]); // Dependencies are correct
+  }, [messages, chatId, getChatKey, decryptedMessages]);
 
-  // --- EFFECT 4: Auto-scroll to bottom ---
-  // ... (This effect is unchanged)
   useEffect(() => {
     if (messageListRef.current) {
       messageListRef.current.scrollTop = messageListRef.current.scrollHeight;
     }
   }, [decryptedMessages]); 
-
   
-  // --- SEND MESSAGE (Encryption Flow) ---
-  // ... (This function is unchanged)
   const handleSendMessage = async (text: string) => {
     if (!chatId || !currentUser) return;
-
     const key = await getChatKey(chatId);
     if (!key) {
       alert("Error: Chat key is not available. Cannot send message.");
       return;
     }
-
     const encryptedText = await Crypto.encryptWithAES(key, text);
-
     const newMessage = {
       senderId: currentUser.uid,
       encryptedText: encryptedText,
       timestamp: Timestamp.now(), 
     };
-
     await addDoc(collection(db, 'chats', chatId, 'messages'), newMessage);
-    
     await updateDoc(doc(db, 'chats', chatId), {
       lastMessage: {
         encryptedText: encryptedText,
@@ -170,18 +149,45 @@ const ChatRoom: React.FC = () => {
     });
   };
 
-  // ... (Rest of the JSX is unchanged) ...
+  
+  // 4. --- NEW LOGIC: GROUP MESSAGES BY DATE ---
+  const groupedChatItems = useMemo(() => {
+    const items: ChatListItem[] = [];
+    let lastDate: string | null = null;
+
+    messages.forEach((message) => {
+      // We need a valid timestamp to do anything
+      if (message.timestamp) {
+        const messageDate = message.timestamp.toDate();
+        const dateString = messageDate.toLocaleDateString(); // e.g., "10/31/2025"
+
+        // Check if this message is on a new day
+        if (dateString !== lastDate) {
+          // If it is, add a date separator to our new array
+          items.push({ type: 'date', date: messageDate });
+          lastDate = dateString; // Update the last seen date
+        }
+      }
+      
+      // Finally, add the message itself to the array
+      items.push({ type: 'message', data: message });
+    });
+
+    return items;
+  }, [messages]); // This logic only re-runs when the 'messages' array changes
+
+
+  // ... (Loading/Error JSX is unchanged) ...
   if (loading) {
     return <div className="flex-1 flex items-center justify-center"><LoadingSpinner /></div>;
   }
-
   if (!chat) {
     return <div className="flex-1 flex items-center justify-center">Chat not found.</div>;
   }
-
-  // Add optional chaining `?.` as a defensive measure
   const recipient = chat.participants?.find(p => p.uid !== currentUser!.uid);
 
+
+  // --- (This is the render() return) ---
   return (
     <div className="flex-1 flex flex-col h-full">
       <div className="p-4 border-b border-grey-dark">
@@ -194,14 +200,30 @@ const ChatRoom: React.FC = () => {
         ref={messageListRef} 
         className="flex-1 p-4 space-y-4 overflow-y-auto"
       >
-        {messages.map((msg) => {
-          // This ensures that if msg.id was undefined, it's just skipped.
+        {/* 5. --- UPDATED RENDER LOGIC --- */}
+        {/* We now map over our new `groupedChatItems` array */}
+        {groupedChatItems.map((item, index) => {
+          
+          // Case 1: The item is a date separator
+          if (item.type === 'date') {
+            return (
+              <DateSeparator 
+                key={item.date.toISOString()} 
+                date={formatDateSeparator(item.date)} 
+              />
+            );
+          }
+
+          // Case 2: The item is a message
+          const msg = item.data;
           const plaintext = msg.id ? decryptedMessages.get(msg.id) || "..." : "...";
+          
           return (
             <ChatMessage
-              key={msg.id || Math.random()} // Use random key as fallback
+              key={msg.id || index} // Use index as fallback key
               text={plaintext}
               isSender={msg.senderId === currentUser!.uid}
+              timestamp={msg.timestamp || null}
             />
           );
         })}
