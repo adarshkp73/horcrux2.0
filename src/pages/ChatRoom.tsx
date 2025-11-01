@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef, useMemo } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router-dom'; // <-- 1. IMPORT useNavigate
 import { useAuth } from '../hooks/useAuth';
 import { Chat, Message, ChatListItem } from '../types';
 import {
@@ -21,6 +21,14 @@ import { LoadingSpinner } from '../components/core/LoadingSpinner';
 import { DateSeparator } from '../components/chat/DateSeparator';
 import { formatDateSeparator } from '../lib/dateUtils';
 
+// 2. Icon for the mobile back button
+const BackIcon = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
+    </svg>
+);
+
+
 const ChatRoom: React.FC = () => {
   const { id: chatId } = useParams<{ id: string }>();
   const { currentUser, getChatKey, decapAndSaveKey } = useAuth();
@@ -31,22 +39,21 @@ const ChatRoom: React.FC = () => {
   const [loading, setLoading] = useState(true);
 
   const messageListRef = useRef<HTMLDivElement>(null);
+  const navigate = useNavigate(); // <-- 3. Initialize useNavigate
 
-  // --- (useEffect 1: Listen to Chat Document) ---
+  // ... (All useEffect and handleSendMessage logic is unchanged) ...
+  // [Lines 45-210 are unchanged from the previous version of ChatRoom.tsx]
   useEffect(() => {
     if (!chatId || !currentUser) return;
     setLoading(true);
-    
     const unsubChat = onSnapshot(doc(db, 'chats', chatId), async (doc) => {
       if (!doc.exists()) {
         console.error("Chat does not exist");
         setLoading(false);
         return;
       }
-      
       const chatData = { id: doc.id, ...doc.data() } as Chat;
       setChat(chatData);
-
       const kemData = chatData.keyEncapsulationData;
       if (kemData && kemData.recipientId === currentUser.uid) {
         try {
@@ -61,22 +68,18 @@ const ChatRoom: React.FC = () => {
     return () => unsubChat();
   }, [chatId, currentUser, decapAndSaveKey]);
 
-  // --- (useEffect 2: "Mark as Read") ---
   useEffect(() => {
     if (!chatId || !currentUser || !chat) {
       return;
     }
-
     const lastMsg = chat.lastMessage;
     const myLastRead = (chat.lastRead && chat.lastRead[currentUser.uid]) ? chat.lastRead[currentUser.uid] : null;
-
     let needsReadUpdate = false;
     if (lastMsg && lastMsg.senderId !== currentUser.uid) {
       if (!myLastRead || myLastRead.toMillis() < lastMsg.timestamp.toMillis()) {
         needsReadUpdate = true;
       }
     }
-
     if (needsReadUpdate) {
       console.log(`Marking chat ${chatId} as read...`);
       setDoc(doc(db, 'chats', chatId), {
@@ -86,10 +89,8 @@ const ChatRoom: React.FC = () => {
       }, { merge: true })
       .catch(err => console.error("Error marking chat as read:", err));
     }
-
   }, [chat, chatId, currentUser]); 
 
-  // --- (useEffect 3: Listen to Messages) ---
   useEffect(() => {
     if (!chatId) return;
     const messagesRef = collection(db, 'chats', chatId, 'messages');
@@ -107,7 +108,6 @@ const ChatRoom: React.FC = () => {
     return () => unsubMessages();
   }, [chatId]);
 
-  // --- (useEffect 4: Decrypt Messages) ---
   useEffect(() => {
     if (messages.length === 0) return;
     const decryptAll = async () => {
@@ -138,14 +138,12 @@ const ChatRoom: React.FC = () => {
     decryptAll();
   }, [messages, chatId, getChatKey, decryptedMessages]);
 
-  // --- (useEffect 5: Auto-scroll) ---
   useEffect(() => {
     if (messageListRef.current) {
       messageListRef.current.scrollTop = messageListRef.current.scrollHeight;
     }
   }, [decryptedMessages]); 
   
-  // --- (handleSendMessage function: THIS IS THE FIX) ---
   const handleSendMessage = async (text: string) => {
     if (!chatId || !currentUser) return;
     const key = await getChatKey(chatId);
@@ -154,28 +152,21 @@ const ChatRoom: React.FC = () => {
       return;
     }
     const encryptedText = await Crypto.encryptWithAES(key, text);
-    
-    // 1. Create the new message object
     const newMessage = {
       senderId: currentUser.uid,
       encryptedText: encryptedText,
       timestamp: Timestamp.now(), 
     };
-    
-    // 2. Add the new message to the subcollection
     await addDoc(collection(db, 'chats', chatId, 'messages'), newMessage);
-    
-    // 3. Update the `lastMessage` field on the main chat doc
     await updateDoc(doc(db, 'chats', chatId), {
       lastMessage: {
-        senderId: currentUser.uid, // <-- THIS IS THE NEW LINE
+        senderId: currentUser.uid, 
         encryptedText: encryptedText,
         timestamp: newMessage.timestamp,
       }
     });
   };
   
-  // --- (groupedChatItems logic is unchanged) ---
   const groupedChatItems = useMemo(() => {
     const items: ChatListItem[] = [];
     let lastDate: string | null = null;
@@ -192,8 +183,9 @@ const ChatRoom: React.FC = () => {
     });
     return items;
   }, [messages]);
+  // --- End of Unchanged Logic ---
 
-  // --- (Rest of the render/JSX is unchanged) ---
+
   if (loading) {
     return <div className="flex-1 flex items-center justify-center"><LoadingSpinner /></div>;
   }
@@ -215,7 +207,18 @@ const ChatRoom: React.FC = () => {
 
   return (
     <div className="flex-1 flex flex-col h-full">
-      <div className="p-4 border-b border-grey-mid/20 dark:border-grey-dark">
+      
+      {/* 4. CHAT HEADER WITH BACK BUTTON */}
+      <div className="p-4 border-b border-grey-mid/20 dark:border-grey-dark flex items-center">
+        {/* MOBILE BACK BUTTON (Visible only on mobile/small screens) */}
+        <button
+            onClick={() => navigate('/')} // Navigate back to the index (sidebar)
+            className="p-1 mr-2 text-night dark:text-pure-white md:hidden"
+            title="Back to Chats"
+        >
+            <BackIcon />
+        </button>
+
         <h2 className="text-xl font-bold">
           Chat with {recipient ? recipient.username : '...'}
         </h2>
