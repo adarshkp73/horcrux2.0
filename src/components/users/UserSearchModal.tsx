@@ -133,6 +133,7 @@ export const UserSearchModal: React.FC<UserSearchModalProps> = ({ isOpen, onClos
         const me: ChatParticipant = { uid: currentUser.uid, username: userProfile.username };
         const other: ChatParticipant = { uid: recipient.uid, username: recipient.username };
         
+        // This is the object that was causing the error
         const newChat: Chat = {
           id: chatId,
           participants: [me, other].sort((a, b) => a.uid.localeCompare(b.uid)) as [ChatParticipant, ChatParticipant],
