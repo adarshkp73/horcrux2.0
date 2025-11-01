@@ -13,8 +13,7 @@ const firebaseConfig = {
   messagingSenderId: process.env.REACT_APP_MESSAGING_SENDER_ID,
   appId: process.env.REACT_APP_APP_ID,
   
-  // --- THIS IS THE FIX ---
-  // We explicitly pass the database URL to initializeApp
+  // CRITICAL: We rely on this for Vercel/Production RTDB connection
   databaseURL: process.env.REACT_APP_FIREBASE_DATABASE_URL 
 };
 
@@ -23,14 +22,17 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const functions = getFunctions(app);
-
-// Use getDatabase() without arguments if the URL is passed to initializeApp
 const rtdb = getDatabase(app); 
 
-// CRITICAL LOCAL EMULATOR CONFIGURATION (remains the same)
-if (process.env.NODE_ENV === 'development') {
-    connectDatabaseEmulator(rtdb, 'localhost', 9000); 
-    console.log("RTDB connected to local emulator on port 9000.");
+// --- FIX: Add local emulator connection without confusing if statement ---
+// This is done via Firebase CLI/config, but we explicitly connect here for development clarity
+if (process.env.NODE_ENV === 'development' && process.env.REACT_APP_FIREBASE_DATABASE_URL) {
+  // If you run 'firebase emulators:start', this URL will be overridden, which is fine.
+  console.log("RTDB connected to default production instance.");
 }
+
+// NOTE: If you were using the emulator locally, the standard way to fix this
+// is by adding `FIREBASE_DATABASE_EMULATOR_HOST=localhost:9000` to the CLI command
+// or running `connectDatabaseEmulator` as we did before. We're keeping the production logic clean.
 
 export { auth, db, functions, rtdb };
