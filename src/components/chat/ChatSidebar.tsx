@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react'; // useMemo is no longer needed, but safe to keep
+import React, { useEffect, useState, useMemo } from 'react'; 
 import {
   collection,
   query,
@@ -14,8 +14,9 @@ import { UserSearchModal } from '../users/UserSearchModal';
 import { LoadingSpinner } from '../core/LoadingSpinner';
 import { Button } from '../core/Button';
 import clsx from 'clsx';
+import { usePresence } from '../../hooks/usePresence'; // Used for presence feature
 
-// ... (PlusIcon is unchanged) ...
+// Icon for "Find User"
 const PlusIcon = () => (
   <svg 
     xmlns="http://www.w3.org/2000/svg" 
@@ -29,18 +30,31 @@ const PlusIcon = () => (
   </svg>
 );
 
-// The DeleteIcon component is now GONE
-
-// We revert to just using ChatWithRecipient
 interface ChatSidebarItem extends ChatWithRecipient {
   isUnread: boolean;
 }
 
+// Component to render status, uses the hook
+const StatusIndicator: React.FC<{ uid: string }> = ({ uid }) => {
+  const status = usePresence(uid); // Monitor the specific user
+  const isOnline = status.state === 'online';
+
+  return (
+    <div
+      className={clsx(
+        "w-2 h-2 rounded-full flex-shrink-0 ml-2",
+        isOnline ? "bg-green-500" : "bg-grey-mid/50"
+      )}
+      title={isOnline ? "Online" : "Offline"}
+    />
+  );
+};
+
+
 export const ChatSidebar: React.FC = () => {
-  // 'userProfile' and 'deleteChat' are GONE from useAuth()
   const { currentUser } = useAuth();
   
-  const [chats, setChats] = useState<ChatSidebarItem[]>([]); // This now holds our main list
+  const [chats, setChats] = useState<ChatSidebarItem[]>([]);
   
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -48,6 +62,9 @@ export const ChatSidebar: React.FC = () => {
 
   const navigate = useNavigate();
   const { id: activeChatId } = useParams<{ id: string }>();
+
+  // 1. New: Call usePresence without arguments to SET the current user's presence state
+  usePresence(); 
 
   useEffect(() => {
     if (!currentUser?.uid) {
@@ -70,15 +87,9 @@ export const ChatSidebar: React.FC = () => {
         snapshot.forEach((docRef) => {
           const chat = { id: docRef.id, ...docRef.data() } as Chat;
 
-          // We filter out any "hidden" chats right here
-          // (This logic is safe even if 'hidden_chats' was never created)
-          // ... Wait, we removed this. We no longer need to filter.
-
           const recipientParticipant = chat.participants?.find(
             (p) => p.uid !== currentUser.uid
           );
-
-          // This handles the "zombie chat" case if the other user deleted their account
           if (!recipientParticipant) {
             console.warn(`Chat ${chat.id} has no other participant. Skipping.`);
             return; 
@@ -112,7 +123,7 @@ export const ChatSidebar: React.FC = () => {
           return timeB - timeA;
         });
 
-        setChats(loadedChats); // Set the final list
+        setChats(loadedChats); 
         setLoading(false);
       },
       (err) => {
@@ -123,11 +134,13 @@ export const ChatSidebar: React.FC = () => {
     );
 
     return () => unsubscribe();
-  }, [currentUser?.uid]); // We no longer depend on userProfile
+  }, [currentUser?.uid]);
 
-  // The 'visibleChats' useMemo hook is now GONE
-
-  // The 'handleDeleteChat' function is now GONE
+  // We filter out hidden chats (now removed, but keeping a simple filter)
+  const visibleChats = useMemo(() => {
+    // Since hidden_chats is removed from the type, this is just a dummy filter that returns all chats
+    return chats.filter(chat => true); 
+  }, [chats]);
 
   return (
     <div className="flex flex-col h-full"> 
@@ -144,19 +157,17 @@ export const ChatSidebar: React.FC = () => {
           </div>
         )}
         
-        {/* We check the main `chats` array now */}
-        {!loading && error && chats.length === 0 && (
+        {!loading && error && visibleChats.length === 0 && (
           <p className="text-red-600 dark:text-red-500 text-center">{error}</p>
         )}
-        {!loading && !error && chats.length === 0 && (
+        {!loading && !error && visibleChats.length === 0 && (
           <p className="text-grey-dark dark:text-grey-mid text-center">
             No chats yet. Find a user to start a conversation.
           </p>
         )}
         
-        {/* We map over the main `chats` array now */}
         <div className="space-y-2">
-          {chats.map(({ chat, recipient, isUnread }) => (
+          {visibleChats.map(({ chat, recipient, isUnread }) => (
             <div
               key={chat.id}
               onClick={() => navigate(`/chat/${chat.id}`)}
@@ -167,11 +178,17 @@ export const ChatSidebar: React.FC = () => {
                   : 'bg-pure-white/50 dark:bg-grey-dark text-night dark:text-grey-light hover:bg-pure-white dark:hover:bg-grey-mid'
               )}
             >
-              {/* Left Side (Name & Message) */}
-              <div>
+              {/* Left Side (Name & Status) */}
+              <div className='flex items-center'> 
                 <p className={clsx("font-bold", isUnread && "text-night dark:text-pure-white")}>
                   {recipient.username}
                 </p>
+                {/* Status indicator remains */}
+                <StatusIndicator uid={recipient.uid} /> 
+              </div>
+
+              {/* Right Side (Message & Dot) */}
+              <div className="flex items-center space-x-2">
                 <p className={clsx(
                   "text-sm",
                   chat.id === activeChatId 
@@ -180,15 +197,10 @@ export const ChatSidebar: React.FC = () => {
                 )}>
                   {chat.lastMessage ? 'Encrypted Message' : 'No messages yet'}
                 </p>
-              </div>
 
-              {/* Unread Dot & Delete Button Container */}
-              <div className="flex items-center space-x-2">
                 {isUnread && (
                   <div className="w-3 h-3 bg-blue-500 rounded-full flex-shrink-0" title="Unread messages" />
                 )}
-                
-                {/* The delete button is now GONE */}
               </div>
             </div>
           ))}

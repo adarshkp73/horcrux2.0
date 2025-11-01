@@ -56,10 +56,9 @@ export interface Chat {
   } | null;
   keyEncapsulationData: KeyEncapsulationData | null;
   
-  // --- THIS IS THE FIX ---
-  // The property is now optional, so new chats created without it
-  // will no longer cause a TypeScript build error.
-  lastRead?: {
+  // --- THIS IS THE REQUIRED FIELD ---
+  // This line makes the `lastRead` property mandatory for all Chat objects
+  lastRead: {
     [key: string]: Timestamp;
   };
 }
