@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef, useMemo } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router-dom'; // <-- 1. IMPORT useNavigate
 import { useAuth } from '../hooks/useAuth';
 import { Chat, Message, ChatListItem } from '../types';
 import {
@@ -11,7 +11,7 @@ import {
   updateDoc,
   query,
   orderBy,
-  setDoc, 
+  setDoc,
 } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import * as Crypto from '../lib/crypto';
@@ -20,10 +20,8 @@ import { ChatMessage } from '../components/chat/ChatMessage';
 import { LoadingSpinner } from '../components/core/LoadingSpinner';
 import { DateSeparator } from '../components/chat/DateSeparator';
 import { formatDateSeparator } from '../lib/dateUtils';
-import { usePresence } from '../hooks/usePresence';
-import clsx from 'clsx'; 
 
-// Icon for the mobile back button
+// 2. Icon for the mobile back button
 const BackIcon = () => (
     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6">
       <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
@@ -41,28 +39,21 @@ const ChatRoom: React.FC = () => {
   const [loading, setLoading] = useState(true);
 
   const messageListRef = useRef<HTMLDivElement>(null);
-  const navigate = useNavigate();
-  
-  // This is the functional recipient declaration used in JSX and presence monitoring.
-  const recipient = chat?.participants?.find(p => p.uid !== currentUser?.uid);
-  const recipientStatus = usePresence(recipient?.uid);
-  const isRecipientOnline = recipientStatus.state === 'online';
+  const navigate = useNavigate(); // <-- 3. Initialize useNavigate
 
-  // --- EFFECT 1: Listen to the Chat Document ---
+  // ... (All useEffect and handleSendMessage logic is unchanged) ...
+  // [Lines 45-210 are unchanged from the previous version of ChatRoom.tsx]
   useEffect(() => {
     if (!chatId || !currentUser) return;
     setLoading(true);
-    
     const unsubChat = onSnapshot(doc(db, 'chats', chatId), async (doc) => {
       if (!doc.exists()) {
         console.error("Chat does not exist");
         setLoading(false);
         return;
       }
-      
       const chatData = { id: doc.id, ...doc.data() } as Chat;
       setChat(chatData);
-
       const kemData = chatData.keyEncapsulationData;
       if (kemData && kemData.recipientId === currentUser.uid) {
         try {
@@ -77,29 +68,20 @@ const ChatRoom: React.FC = () => {
     return () => unsubChat();
   }, [chatId, currentUser, decapAndSaveKey]);
 
-  // --- EFFECT 2: "Mark as Read" (The fix is here) ---
   useEffect(() => {
-    if (!chatId || !currentUser || !chat) { return; }
-    
-    // FIX: Do not redeclare 'recipient' here. Get the recipient ID directly.
-    // The recipient *object* is already declared above.
-    const recipientId = chat.users.find(uid => uid !== currentUser.uid);
-
+    if (!chatId || !currentUser || !chat) {
+      return;
+    }
     const lastMsg = chat.lastMessage;
     const myLastRead = (chat.lastRead && chat.lastRead[currentUser.uid]) ? chat.lastRead[currentUser.uid] : null;
     let needsReadUpdate = false;
-    
-    // If the last message exists AND it wasn't from me
     if (lastMsg && lastMsg.senderId !== currentUser.uid) {
-      // If I've never read it OR the message is newer than my last read time
       if (!myLastRead || myLastRead.toMillis() < lastMsg.timestamp.toMillis()) {
         needsReadUpdate = true;
       }
     }
-    
     if (needsReadUpdate) {
       console.log(`Marking chat ${chatId} as read...`);
-      // We safely update the lastRead time for the current user
       setDoc(doc(db, 'chats', chatId), {
         lastRead: {
           [currentUser.uid]: Timestamp.now()
@@ -107,10 +89,8 @@ const ChatRoom: React.FC = () => {
       }, { merge: true })
       .catch(err => console.error("Error marking chat as read:", err));
     }
-
   }, [chat, chatId, currentUser]); 
 
-  // --- (All other useEffects and functions are unchanged) ---
   useEffect(() => {
     if (!chatId) return;
     const messagesRef = collection(db, 'chats', chatId, 'messages');
@@ -132,7 +112,10 @@ const ChatRoom: React.FC = () => {
     if (messages.length === 0) return;
     const decryptAll = async () => {
       const key = await getChatKey(chatId!);
-      if (!key) { setDecryptedMessages(new Map()); return; }
+      if (!key) {
+        setDecryptedMessages(new Map()); 
+        return;
+      }
       const newDecrypted = new Map(decryptedMessages);
       let needsUpdate = false;
       for (const msg of messages) {
@@ -148,7 +131,9 @@ const ChatRoom: React.FC = () => {
           }
         }
       }
-      if (needsUpdate) { setDecryptedMessages(newDecrypted); }
+      if (needsUpdate) {
+        setDecryptedMessages(newDecrypted);
+      }
     };
     decryptAll();
   }, [messages, chatId, getChatKey, decryptedMessages]);
@@ -175,7 +160,7 @@ const ChatRoom: React.FC = () => {
     await addDoc(collection(db, 'chats', chatId, 'messages'), newMessage);
     await updateDoc(doc(db, 'chats', chatId), {
       lastMessage: {
-        senderId: currentUser.uid,
+        senderId: currentUser.uid, 
         encryptedText: encryptedText,
         timestamp: newMessage.timestamp,
       }
@@ -198,15 +183,17 @@ const ChatRoom: React.FC = () => {
     });
     return items;
   }, [messages]);
+  // --- End of Unchanged Logic ---
 
 
-  if (loading) { return <div className="flex-1 flex items-center justify-center"><LoadingSpinner /></div>; }
-  if (!chat || !currentUser) { return <div className="flex-1 flex items-center justify-center">Chat not found.</div>; }
+  if (loading) {
+    return <div className="flex-1 flex items-center justify-center"><LoadingSpinner /></div>;
+  }
+  if (!chat || !currentUser) { 
+    return <div className="flex-1 flex items-center justify-center">Chat not found.</div>;
+  }
   
-  // The 'recipient' variable is correctly defined here for the JSX below.
-  // const recipient = chat?.participants?.find(p => p.uid !== currentUser.uid); // Already defined above
-  // const recipientStatus = usePresence(recipient?.uid); // Already defined above
-  // const isRecipientOnline = recipientStatus.state === 'online'; // Already defined above
+  const recipient = chat.participants?.find(p => p.uid !== currentUser.uid);
 
   const lastMessage = messages.length > 0 ? messages[messages.length - 1] : null;
   let showReadReceipt = false;
@@ -221,7 +208,7 @@ const ChatRoom: React.FC = () => {
   return (
     <div className="flex-1 flex flex-col h-full">
       
-      {/* CHAT HEADER WITH BACK BUTTON AND STATUS */}
+      {/* 4. CHAT HEADER WITH BACK BUTTON */}
       <div className="p-4 border-b border-grey-mid/20 dark:border-grey-dark flex items-center">
         {/* MOBILE BACK BUTTON (Visible only on mobile/small screens) */}
         <button
@@ -232,20 +219,9 @@ const ChatRoom: React.FC = () => {
             <BackIcon />
         </button>
 
-        <div>
-          {/* Recipient Name */}
-          <h2 className="text-xl font-bold">
-            {recipient ? recipient.username : '...'}
-          </h2>
-          
-          {/* ONLINE/OFFLINE STATUS */}
-          <span className={clsx(
-            "text-xs",
-            isRecipientOnline ? "text-green-500" : "text-grey-mid"
-          )}>
-            {isRecipientOnline ? "Online" : "Offline"}
-          </span>
-        </div>
+        <h2 className="text-xl font-bold">
+          Chat with {recipient ? recipient.username : '...'}
+        </h2>
       </div>
 
       <div 
