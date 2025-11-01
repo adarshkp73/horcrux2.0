@@ -15,7 +15,7 @@ export interface UserProfile {
   kyberPublicKey: string; // Base64 encoded
   createdAt: Timestamp;
   friends: string[]; // array of UIDs
-  // The 'hidden_chats' field is now GONE
+  // We removed the 'hidden_chats' feature, so it is NOT here.
 }
 
 // Stored in `keyVaults/{userId}`
@@ -50,11 +50,14 @@ export interface Chat {
   participants: [ChatParticipant, ChatParticipant]; // For fast display
   users: [string, string]; // For rules and queries
   lastMessage: {
-    senderId: string; 
+    senderId: string;
     encryptedText: string;
     timestamp: Timestamp;
   } | null;
   keyEncapsulationData: KeyEncapsulationData | null;
+  
+  // --- THIS IS THE REQUIRED FIELD ---
+  // This line makes the `lastRead` property mandatory for all Chat objects
   lastRead: {
     [key: string]: Timestamp;
   };
