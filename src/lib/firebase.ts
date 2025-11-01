@@ -22,17 +22,19 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 const functions = getFunctions(app);
+
+// Use getDatabase() without arguments - it will use the URL above
 const rtdb = getDatabase(app); 
 
-// --- FIX: Add local emulator connection without confusing if statement ---
-// This is done via Firebase CLI/config, but we explicitly connect here for development clarity
-if (process.env.NODE_ENV === 'development' && process.env.REACT_APP_FIREBASE_DATABASE_URL) {
-  // If you run 'firebase emulators:start', this URL will be overridden, which is fine.
-  console.log("RTDB connected to default production instance.");
+// CRITICAL LOCAL EMULATOR CONFIGURATION (for local testing)
+if (process.env.NODE_ENV === 'development') {
+    // Note: If this fails, the local problem is in your firebase CLI setup.
+    try {
+      connectDatabaseEmulator(rtdb, 'localhost', 9000); 
+      console.log("RTDB connected to local emulator on port 9000.");
+    } catch (e) {
+      console.warn("RTDB: Could not connect to local emulator. Using live DB.", e);
+    }
 }
-
-// NOTE: If you were using the emulator locally, the standard way to fix this
-// is by adding `FIREBASE_DATABASE_EMULATOR_HOST=localhost:9000` to the CLI command
-// or running `connectDatabaseEmulator` as we did before. We're keeping the production logic clean.
 
 export { auth, db, functions, rtdb };
